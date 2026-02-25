@@ -1,0 +1,1761 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Camera Calibration</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=JetBrains+Mono:wght@300;400;500&family=Instrument+Serif&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0b0c10; --panel: #101118; --panel2: #161820;
+    --border: rgba(74,124,255,0.08); --border2: rgba(74,124,255,0.14);
+    --accent: #4a7cff; --accent-light: #6c9bff; --accent-dim: rgba(74,124,255,0.10);
+    --green: #34d399; --red: #f87171; --amber: #fbbf24;
+    --text: #c8ccd4; --text-dim: #5e6370; --text-micro: #3a3e4a;
+    --mono: 'JetBrains Mono', monospace;
+    --sans: 'DM Sans', 'Helvetica Neue', sans-serif;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: var(--bg); color: var(--text); font-family: var(--sans); height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+
+  /* ─── HEADER ─── */
+  .header { display: flex; align-items: center; justify-content: space-between; padding: 14px 24px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+  .logo { display: flex; align-items: center; gap: 12px; }
+  .logo-icon { width: 30; height: 30; border-radius: 7px; border: 1.5px solid rgba(74,124,255,0.35); display: grid; place-items: center; }
+  .logo-text h1 { font-size: 15px; font-weight: 500; color: #e8eaef; letter-spacing: -0.01em; }
+  .logo-text span { font-size: 10px; font-family: var(--mono); color: var(--text-micro); letter-spacing: 0.06em; text-transform: uppercase; }
+
+  /* ─── TOP TABS ─── */
+  .top-tabs { display: flex; gap: 2px; background: var(--panel2); border-radius: 8px; padding: 3px; }
+  .top-tab { padding: 6px 16px; border-radius: 6px; font-size: 12px; font-family: var(--sans); font-weight: 500; color: var(--text-dim); cursor: pointer; border: none; background: none; transition: all 0.2s; white-space: nowrap; }
+  .top-tab:hover { color: var(--text); background: rgba(74,124,255,0.06); }
+  .top-tab.active { color: #e8eaef; background: var(--accent-dim); border: 1px solid rgba(74,124,255,0.2); }
+
+  /* ─── DEBUG SPECIFIC ─── */
+  .debug-section { margin-bottom: 18px; }
+  .debug-section .section-label { margin-bottom: 8px; }
+  .debug-import-area { width: 100%; min-height: 80px; max-height: 160px; padding: 10px; border-radius: 6px; border: 1px dashed var(--border2); background: var(--panel2); color: var(--text-dim); font-family: var(--mono); font-size: 10px; resize: vertical; line-height: 1.5; }
+  .debug-import-area:focus { outline: none; border-color: var(--accent); color: var(--text); }
+  .debug-metric { display: flex; justify-content: space-between; font-family: var(--mono); font-size: 11px; line-height: 2; }
+  .debug-metric .label { color: var(--text-dim); }
+  .debug-metric .value { color: var(--text); }
+
+  /* ─── STEP BAR ─── */
+  .steps { display: flex; align-items: center; gap: 0; padding: 0 24px; height: 44px; border-bottom: 1px solid var(--border); flex-shrink: 0; overflow-x: auto; }
+  .step-item { display: flex; align-items: center; gap: 8px; padding: 0 14px; height: 100%; cursor: default; position: relative; white-space: nowrap; }
+  .step-num { width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; font-size: 10px; font-family: var(--mono); font-weight: 500; border: 1.5px solid var(--text-micro); color: var(--text-micro); transition: all 0.3s; }
+  .step-label { font-size: 11px; color: var(--text-micro); transition: all 0.3s; letter-spacing: 0.02em; }
+  .step-item.active .step-num { border-color: var(--accent); color: #fff; background: var(--accent); }
+  .step-item.active .step-label { color: var(--accent-light); }
+  .step-item.done .step-num { border-color: var(--green); color: var(--green); background: rgba(52,211,153,0.1); }
+  .step-item.done .step-label { color: rgba(52,211,153,0.6); }
+  .step-sep { width: 20px; height: 1px; background: var(--text-micro); opacity: 0.3; flex-shrink: 0; }
+
+  /* ─── LAYOUT ─── */
+  .main { flex: 1; display: flex; overflow: hidden; }
+  .feed-area { flex: 1; display: flex; align-items: center; justify-content: center; position: relative; background: var(--bg); }
+  .feed-area img, .feed-area video { max-width: 100%; max-height: 100%; border-radius: 4px; }
+  .sidebar { width: 360px; flex-shrink: 0; border-left: 1px solid var(--border); background: var(--panel); display: flex; flex-direction: column; overflow: hidden; }
+  .sidebar-scroll { flex: 1; overflow-y: auto; padding: 24px 22px; scrollbar-width: thin; scrollbar-color: #1e2028 transparent; }
+  .sidebar-footer { padding: 16px 22px; border-top: 1px solid var(--border); flex-shrink: 0; display: flex; gap: 8px; }
+
+  /* ─── COMPONENTS ─── */
+  .section-label { font-size: 9px; font-family: var(--mono); color: var(--text-micro); letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 10px; margin-top: 18px; }
+  .section-label:first-child { margin-top: 0; }
+  .hint { font-size: 13px; line-height: 1.7; color: var(--text-dim); margin-bottom: 14px; }
+  .hint strong { color: var(--text); font-weight: 500; }
+  .hint em { color: var(--accent-light); font-style: normal; }
+
+  .card { background: var(--panel2); border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px; margin-bottom: 14px; }
+
+  .btn { padding: 10px 22px; border-radius: 8px; border: 1px solid var(--border2); background: var(--accent-dim); color: var(--accent-light); font-size: 13px; font-family: var(--sans); font-weight: 500; cursor: pointer; transition: all 0.15s; }
+  .btn:hover { background: rgba(74,124,255,0.18); }
+  .btn:disabled { opacity: 0.35; cursor: default; }
+  .btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .btn.primary:hover { background: #5a8aff; }
+  .btn.sm { padding: 6px 14px; font-size: 11px; }
+  .btn.full { width: 100%; }
+  .btn.danger { border-color: rgba(248,113,113,0.2); color: var(--red); background: rgba(248,113,113,0.06); }
+
+  .badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 6px; font-size: 11px; font-family: var(--mono); }
+  .badge.green { background: rgba(52,211,153,0.08); color: var(--green); border: 1px solid rgba(52,211,153,0.15); }
+  .badge.amber { background: rgba(251,191,36,0.08); color: var(--amber); border: 1px solid rgba(251,191,36,0.15); }
+  .badge.blue { background: var(--accent-dim); color: var(--accent-light); border: 1px solid var(--border2); }
+  .badge.red { background: rgba(248,113,113,0.08); color: var(--red); border: 1px solid rgba(248,113,113,0.15); }
+
+  .matrix { background: rgba(74,124,255,0.03); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; font-family: var(--mono); font-size: 11px; line-height: 2; color: var(--text-dim); }
+  .matrix .val { color: #8a9bcc; }
+
+  /* ─── SLIDER ─── */
+  .slider-group { margin-bottom: 10px; }
+  .slider-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+  .slider-header .lbl { font-size: 10px; font-family: var(--mono); color: #8a8f98; letter-spacing: 0.04em; }
+  .slider-header .val { font-size: 11px; font-family: var(--mono); color: var(--text); }
+  .slider-header input.val {
+    background: none; border: 1px solid transparent; border-radius: 4px;
+    text-align: right; padding: 1px 4px; width: auto; min-width: 60px; max-width: 110px;
+    transition: border-color 0.15s, background 0.15s;
+  }
+  .slider-header input.val:hover { border-color: var(--border2); background: var(--panel2); }
+  .slider-header input.val:focus { outline: none; border-color: var(--accent); background: var(--panel2); color: #e8eaef; }
+  .slider-track { position: relative; height: 20px; display: flex; align-items: center; }
+  .slider-track .bg { position: absolute; width: 100%; height: 2px; background: #2a2d35; border-radius: 1px; }
+  .slider-track .fill { position: absolute; height: 2px; background: linear-gradient(90deg, var(--accent), var(--accent-light)); border-radius: 1px; }
+  .slider-track input[type=range] { position: absolute; width: 100%; height: 20px; opacity: 0; cursor: pointer; margin: 0; }
+  .slider-track .thumb { position: absolute; width: 12px; height: 12px; border-radius: 50%; background: var(--bg); border: 2px solid var(--accent); box-shadow: 0 0 8px rgba(74,124,255,0.25); pointer-events: none; transition: left 0.05s; }
+
+  /* ─── CAPTURES GRID ─── */
+  .captures-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 14px; }
+  .capture-thumb { border-radius: 6px; overflow: hidden; aspect-ratio: 16/9; background: var(--panel2); border: 1px solid var(--border); position: relative; }
+  .capture-thumb img { width: 100%; height: 100%; object-fit: cover; }
+  .capture-thumb .idx { position: absolute; top: 4px; left: 6px; font-size: 9px; font-family: var(--mono); color: var(--accent-light); background: rgba(11,12,16,0.7); padding: 1px 5px; border-radius: 3px; }
+
+  /* ─── PLACEHOLDER ─── */
+  .placeholder { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; padding: 40px; text-align: center; height: 100%; }
+  .placeholder svg { opacity: 0.15; }
+  .placeholder p { font-size: 14px; color: var(--text-dim); max-width: 380px; line-height: 1.6; }
+
+  /* ─── STATUS DOT ─── */
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  .status-dot.on { background: var(--green); box-shadow: 0 0 8px rgba(52,211,153,0.4); }
+  .status-dot.off { background: var(--red); }
+
+  /* ─── PROGRESS ─── */
+  .progress-bar { height: 3px; background: #1a1c24; border-radius: 2px; overflow: hidden; margin-bottom: 14px; }
+  .progress-bar .fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--green)); transition: width 0.3s; border-radius: 2px; }
+
+  /* ─── TOAST ─── */
+  .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); padding: 10px 20px; border-radius: 8px; font-size: 13px; z-index: 999; animation: toast-in 0.3s ease; }
+  .toast.ok { background: rgba(52,211,153,0.15); color: var(--green); border: 1px solid rgba(52,211,153,0.2); }
+  .toast.err { background: rgba(248,113,113,0.15); color: var(--red); border: 1px solid rgba(248,113,113,0.2); }
+  @keyframes toast-in { from { opacity: 0; transform: translateX(-50%) translateY(10px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
+
+  /* ─── DIVIDER ─── */
+  .divider { height: 1px; background: var(--border); margin: 16px 0; }
+
+  /* ─── PRINT PREVIEW ─── */
+  .print-preview { background: white; border-radius: 8px; padding: 12px; display: flex; align-items: center; justify-content: center; margin-bottom: 14px; }
+  .print-preview img { max-width: 100%; max-height: 200px; }
+
+  /* ─── ANIM ─── */
+  .fade-in { animation: fadeIn 0.25s ease; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+
+  @media print { body * { display: none !important; } .print-target { display: block !important; } }
+</style>
+</head>
+<body>
+
+<!-- ═══════════ HEADER ═══════════ -->
+<div class="header">
+  <div class="logo">
+    <div class="logo-icon">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4a7cff" stroke-width="2" stroke-linecap="round">
+        <circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/>
+      </svg>
+    </div>
+    <div class="logo-text">
+      <h1>Camera Calibration</h1>
+      <span>ChArUco · AprilTag · OpenCV</span>
+    </div>
+  </div>
+  <div style="display:flex;align-items:center;gap:16px;">
+    <div class="top-tabs" id="top-tabs">
+      <button class="top-tab active" data-tab="calibrate" onclick="switchTab('calibrate')">Calibrate</button>
+      <button class="top-tab" data-tab="debug" onclick="switchTab('debug')">Debug &amp; Tune</button>
+    </div>
+    <span class="status-dot" id="cam-dot"></span>
+    <span style="font-size:11px;font-family:var(--mono);color:var(--text-dim)" id="cam-status-text">Camera off</span>
+  </div>
+</div>
+
+<!-- ═══════════ STEP BAR ═══════════ -->
+<div class="steps" id="step-bar"></div>
+
+<!-- ═══════════ MAIN ═══════════ -->
+<div class="main">
+  <div class="feed-area" id="feed-area">
+    <div class="placeholder" id="placeholder">
+      <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1">
+        <path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/>
+      </svg>
+      <p>Connect your camera and follow the steps on the right to calibrate it.</p>
+    </div>
+    <img id="stream-img" style="display:none" />
+  </div>
+
+  <div class="sidebar">
+    <div class="sidebar-scroll" id="sidebar-content"></div>
+    <div class="sidebar-footer" id="sidebar-footer"></div>
+  </div>
+</div>
+
+<!-- ═══════════ TOAST ═══════════ -->
+<div id="toast" style="display:none"></div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+//  STATE
+// ═══════════════════════════════════════════════════════════════
+const STEP_DEFS = [
+  { id: "welcome",     label: "Welcome" },
+  { id: "print",       label: "Print Boards" },
+  { id: "capture",     label: "Capture" },
+  { id: "intrinsic",   label: "Intrinsic" },
+  { id: "ext-capture", label: "Tag Capture" },
+  { id: "extrinsic",   label: "Extrinsic" },
+  { id: "he-capture",  label: "Hand-Eye" },
+  { id: "he-result",   label: "HE Result" },
+  { id: "he-adjust",   label: "HE Adjust" },
+  { id: "adjust",      label: "Adjust" },
+  { id: "export",      label: "Export" },
+];
+
+let currentStep = 0;
+let captures = [];        // thumbnail b64 strings
+let calibrationResult = null;
+let extrinsicResult = null;
+let handeyePairs = [];    // {thumbnail, ee_pose}
+let handeyeResult = null;
+let statusPoll = null;
+let lastStatus = {};
+
+// ═══════════════════════════════════════════════════════════════
+//  HELPERS
+// ═══════════════════════════════════════════════════════════════
+const $ = s => document.querySelector(s);
+const api = async (path, opts) => {
+  try {
+    const r = await fetch(path, opts);
+    return await r.json();
+  } catch (e) { return { ok: false, error: e.message }; }
+};
+const post = (path, body) => api(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
+
+function toast(msg, ok = true) {
+  const t = $("#toast");
+  t.className = "toast " + (ok ? "ok" : "err");
+  t.textContent = msg;
+  t.style.display = "block";
+  clearTimeout(t._t);
+  t._t = setTimeout(() => t.style.display = "none", 3000);
+}
+
+function startStatusPoll() {
+  if (statusPoll) return;
+  statusPoll = setInterval(async () => {
+    lastStatus = await api("/api/status");
+  }, 250);
+}
+function stopStatusPoll() {
+  if (statusPoll) { clearInterval(statusPoll); statusPoll = null; }
+}
+
+function startStream(mode) {
+  post("/api/mode", { mode });
+  const img = $("#stream-img");
+  img.src = "/api/stream?" + Date.now();
+  img.style.display = "block";
+  $("#placeholder").style.display = "none";
+  startStatusPoll();
+}
+
+function stopStream() {
+  const img = $("#stream-img");
+  img.src = "";
+  img.style.display = "none";
+  post("/api/stream/stop");
+  post("/api/mode", { mode: "idle" });
+  stopStatusPoll();
+}
+
+function fmtNum(v, d = 2) {
+  if (typeof v !== "number") return "—";
+  return d === 0 ? Math.round(v).toString() : v.toFixed(d);
+}
+
+// Shared: sync a typed value from the number input back to the range slider + visuals
+function sliderValFromInput(groupId, inputEl, min, max, step, callback) {
+  // Strip common unit suffixes before parsing
+  let raw = inputEl.value.replace(/\s*(px|rad|m|mm|°)\s*$/i, "").trim();
+  let val = parseFloat(raw);
+  if (isNaN(val)) return;
+  val = Math.max(min, Math.min(max, val));
+  const rangeEl = document.querySelector(`#sg-${groupId} input[type=range]`);
+  if (rangeEl) { rangeEl.value = val; }
+  callback(val);
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  STEP BAR RENDERING
+// ═══════════════════════════════════════════════════════════════
+function renderStepBar() {
+  const bar = $("#step-bar");
+  bar.innerHTML = "";
+  STEP_DEFS.forEach((s, i) => {
+    if (i > 0) { const sep = document.createElement("div"); sep.className = "step-sep"; bar.appendChild(sep); }
+    const el = document.createElement("div");
+    el.className = "step-item" + (i === currentStep ? " active" : "") + (i < currentStep ? " done" : "");
+    el.innerHTML = `<div class="step-num">${i < currentStep ? "✓" : i + 1}</div><div class="step-label">${s.label}</div>`;
+    el.onclick = () => { if (i <= currentStep) goStep(i); };
+    el.style.cursor = i <= currentStep ? "pointer" : "default";
+    bar.appendChild(el);
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  STEP CONTENT RENDERING
+// ═══════════════════════════════════════════════════════════════
+function goStep(idx) {
+  currentStep = idx;
+  renderStepBar();
+  const content = $("#sidebar-content");
+  const footer = $("#sidebar-footer");
+  content.innerHTML = "";
+  footer.innerHTML = "";
+
+  switch (STEP_DEFS[idx].id) {
+    case "welcome":     renderWelcome(content, footer); break;
+    case "print":       renderPrint(content, footer); break;
+    case "capture":     renderCapture(content, footer); break;
+    case "intrinsic":   renderIntrinsic(content, footer); break;
+    case "ext-capture": renderExtCapture(content, footer); break;
+    case "extrinsic":   renderExtrinsic(content, footer); break;
+    case "he-capture":  renderHECapture(content, footer); break;
+    case "he-result":   renderHEResult(content, footer); break;
+    case "he-adjust":   renderHEAdjust(content, footer); break;
+    case "adjust":      renderAdjust(content, footer); break;
+    case "export":      renderExport(content, footer); break;
+  }
+  content.classList.add("fade-in");
+}
+
+// ───────── WELCOME ─────────
+function renderWelcome(c, f) {
+  stopStream();
+  $("#stream-img").style.display = "none";
+  $("#placeholder").style.display = "flex";
+  c.innerHTML = `
+    <div class="section-label">Welcome</div>
+    <div class="hint">This tool will guide you through <strong>full camera calibration</strong> in two stages:</div>
+    <div class="card">
+      <div style="display:flex;gap:12px;align-items:flex-start;margin-bottom:12px">
+        <span class="badge blue" style="flex-shrink:0">Step 1</span>
+        <div>
+          <div style="font-size:13px;color:var(--text);margin-bottom:4px;font-weight:500">Intrinsic Calibration</div>
+          <div style="font-size:12px;color:var(--text-dim);line-height:1.6">Using a <em>ChArUco board</em>, we'll estimate your camera's focal length, principal point, and lens distortion.</div>
+        </div>
+      </div>
+      <div style="display:flex;gap:12px;align-items:flex-start">
+        <span class="badge blue" style="flex-shrink:0">Step 2</span>
+        <div>
+          <div style="font-size:13px;color:var(--text);margin-bottom:4px;font-weight:500">Extrinsic Calibration</div>
+          <div style="font-size:12px;color:var(--text-dim);line-height:1.6">Using an <em>AprilTag</em> with known position, we'll solve for your camera's 6-DOF pose in the world.</div>
+        </div>
+      </div>
+      <div style="height:1px;background:var(--border);margin:12px 0"></div>
+      <div style="display:flex;gap:12px;align-items:flex-start">
+        <span class="badge blue" style="flex-shrink:0">Step 3</span>
+        <div>
+          <div style="font-size:13px;color:var(--text);margin-bottom:4px;font-weight:500">Hand-Eye Calibration <span style="font-size:10px;color:var(--text-micro);font-weight:400">(optional)</span></div>
+          <div style="font-size:12px;color:var(--text-dim);line-height:1.6">If your camera is mounted on (or observing) a robot, we'll compute the camera ↔ robot transform. Three modes: <em>eye-in-hand</em> (AX=XB), <em>eye-to-hand</em> (AX=XB), or <em>touch-point registration</em> (SVD Procrustes — no rotation input needed, just touch the tag with the TCP).</div>
+        </div>
+      </div>
+    </div>
+    <div class="divider"></div>
+    <div class="section-label">What you'll need</div>
+    <div class="hint">
+      <strong>1.</strong> A printer (we'll generate the boards for you)<br>
+      <strong>2.</strong> A flat surface to mount the ChArUco board<br>
+      <strong>3.</strong> A ruler or tape measure (to enter real dimensions)<br>
+      <strong>4.</strong> Your camera connected to this computer<br>
+      <strong>5.</strong> <em>Optional:</em> Robot with accessible EE pose readout (for hand-eye calibration)
+    </div>
+    <div class="card" style="border-color:rgba(52,211,153,0.15)">
+      <div style="font-size:12px;color:var(--green);line-height:1.6">
+        <strong>Tip:</strong> For best results, capture the board from many angles and distances — fill different parts of the frame. We need at least 4 views, but 8–12 is better.
+      </div>
+    </div>`;
+  f.innerHTML = `<button class="btn primary full" onclick="goStep(1)">Let's Begin →</button>`;
+}
+
+// ───────── PRINT BOARDS ─────────
+function renderPrint(c, f) {
+  stopStream();
+  $("#stream-img").style.display = "none";
+  $("#placeholder").style.display = "flex";
+  c.innerHTML = `
+    <div class="section-label">Print Your Calibration Boards</div>
+    <div class="hint">You need to print <strong>two targets</strong>. Click each button to download a high-resolution PNG. Print at <em>actual size</em> (no scaling) on a flat sheet.</div>
+
+    <div class="card">
+      <div style="font-size:13px;color:var(--text);margin-bottom:8px;font-weight:500">① ChArUco Board</div>
+      <div style="font-size:12px;color:var(--text-dim);line-height:1.6;margin-bottom:10px">7×5 squares with ArUco markers. Used for intrinsic calibration. Mount on a rigid flat surface (cardboard, clipboard, etc).</div>
+      <div class="print-preview"><img src="/api/board/charuco" alt="ChArUco board" /></div>
+      <a href="/api/board/charuco" download="charuco_board.png" class="btn sm full" style="text-align:center;text-decoration:none;display:block">⬇ Download ChArUco Board</a>
+    </div>
+
+    <div class="card">
+      <div style="font-size:13px;color:var(--text);margin-bottom:8px;font-weight:500">② AprilTag</div>
+      <div style="font-size:12px;color:var(--text-dim);line-height:1.6;margin-bottom:10px">AprilTag 36h11 (ID #0). Used for extrinsic calibration. Print and place at a known location in your scene.</div>
+      <div class="print-preview"><img src="/api/board/apriltag" alt="AprilTag" /></div>
+      <a href="/api/board/apriltag" download="apriltag_36h11_id0.png" class="btn sm full" style="text-align:center;text-decoration:none;display:block">⬇ Download AprilTag</a>
+    </div>
+
+    <div class="divider"></div>
+    <div class="section-label">Dimensions</div>
+    <div class="hint">After printing, <strong>measure</strong> your printed squares and enter the real size below. This is critical for metric accuracy.</div>
+    <div style="display:flex;gap:10px;margin-bottom:10px">
+      <div style="flex:1">
+        <label style="font-size:10px;font-family:var(--mono);color:var(--text-dim);display:block;margin-bottom:4px">ChArUco square (mm)</label>
+        <input id="sq-size" type="number" value="30" min="5" max="200" step="0.1"
+          style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid var(--border2);background:var(--panel2);color:var(--text);font-family:var(--mono);font-size:13px" />
+      </div>
+      <div style="flex:1">
+        <label style="font-size:10px;font-family:var(--mono);color:var(--text-dim);display:block;margin-bottom:4px">AprilTag size (mm)</label>
+        <input id="tag-size" type="number" value="50" min="5" max="500" step="0.1"
+          style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid var(--border2);background:var(--panel2);color:var(--text);font-family:var(--mono);font-size:13px" />
+      </div>
+    </div>
+    <div class="card" style="border-color:rgba(251,191,36,0.15)">
+      <div style="font-size:12px;color:var(--amber);line-height:1.6">
+        <strong>Important:</strong> Many printers scale images. Measure the actual printed size with a ruler and enter it above. Even 1 mm error affects accuracy.
+      </div>
+    </div>`;
+  f.innerHTML = `
+    <button class="btn" onclick="goStep(0)">← Back</button>
+    <button class="btn primary" style="flex:1" onclick="startCapturing()">Boards Printed — Start Camera →</button>`;
+}
+
+window.startCapturing = function() {
+  captures = [];
+  post("/api/capture/clear");
+  goStep(2);
+  startStream("charuco");
+  updateCamDot(true);
+}
+
+function updateCamDot(on) {
+  $("#cam-dot").className = "status-dot " + (on ? "on" : "off");
+  $("#cam-status-text").textContent = on ? "Camera active" : "Camera off";
+}
+
+// ───────── CAPTURE (INTRINSIC) ─────────
+function renderCapture(c, f) {
+  const minCap = 4;
+  c.innerHTML = `
+    <div class="section-label">Capture ChArUco Views</div>
+    <div class="hint">Point your camera at the printed ChArUco board. The overlay shows detected corners in <em>orange</em>. Move the board to different positions and angles.</div>
+    <div class="progress-bar"><div class="fill" id="cap-progress" style="width:${Math.min(100, (captures.length / minCap) * 100)}%"></div></div>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+      <span class="badge ${captures.length >= minCap ? 'green' : 'amber'}" id="cap-badge">${captures.length} / ${minCap}+ captures</span>
+      <span class="badge blue" id="corner-badge">— corners</span>
+    </div>
+    <div class="card" style="border-color:rgba(52,211,153,0.15)">
+      <div style="font-size:12px;color:var(--green);line-height:1.7">
+        <strong>Tips for good calibration:</strong><br>
+        • Tilt the board at different angles (15–45°)<br>
+        • Move it to all four corners of the frame<br>
+        • Vary the distance (close and far)<br>
+        • Keep the board still when capturing<br>
+        • Avoid motion blur — good lighting helps
+      </div>
+    </div>
+    <div class="captures-grid" id="cap-grid"></div>
+    <div id="capture-feedback" style="font-size:12px;color:var(--text-dim);text-align:center;min-height:20px"></div>`;
+  renderCaptureGrid();
+  f.innerHTML = `
+    <button class="btn danger sm" onclick="clearCaptures()">Clear All</button>
+    <button class="btn" style="flex:1" id="snap-btn" onclick="snapIntrinsic()">📸 Capture Frame</button>
+    <button class="btn primary" id="cal-btn" ${captures.length < minCap ? 'disabled' : ''} onclick="goStep(3);runCalibration()">Calibrate →</button>`;
+  // Live corner count updater
+  if (!window._capInterval) {
+    window._capInterval = setInterval(() => {
+      if (currentStep !== 2) { clearInterval(window._capInterval); window._capInterval = null; return; }
+      const b = document.getElementById("corner-badge");
+      if (b && lastStatus.charuco_count !== undefined) {
+        b.textContent = `${lastStatus.charuco_count} corners`;
+        b.className = "badge " + (lastStatus.charuco_enough ? "green" : "amber");
+      }
+    }, 300);
+  }
+}
+
+function renderCaptureGrid() {
+  const grid = document.getElementById("cap-grid");
+  if (!grid) return;
+  grid.innerHTML = captures.map((t, i) =>
+    `<div class="capture-thumb"><img src="data:image/jpeg;base64,${t}" /><div class="idx">#${i + 1}</div></div>`
+  ).join("");
+}
+
+window.snapIntrinsic = async function() {
+  const btn = document.getElementById("snap-btn");
+  const fb = document.getElementById("capture-feedback");
+  btn.disabled = true;
+  btn.textContent = "Capturing…";
+  const r = await post("/api/capture/intrinsic");
+  btn.disabled = false;
+  btn.textContent = "📸 Capture Frame";
+  if (r.ok) {
+    captures.push(r.thumbnail);
+    toast(`Captured! ${r.corners_found} corners detected`);
+    fb.style.color = "var(--green)";
+    fb.textContent = `Frame #${captures.length} saved — ${r.corners_found} corners`;
+    renderCaptureGrid();
+    const p = document.getElementById("cap-progress");
+    if (p) p.style.width = Math.min(100, (captures.length / 4) * 100) + "%";
+    const b = document.getElementById("cap-badge");
+    if (b) { b.textContent = `${captures.length} / 4+ captures`; b.className = "badge " + (captures.length >= 4 ? "green" : "amber"); }
+    const cb = document.getElementById("cal-btn");
+    if (cb && captures.length >= 4) cb.disabled = false;
+  } else {
+    toast(r.error || "Capture failed", false);
+    fb.style.color = "var(--red)";
+    fb.textContent = r.error || "Not enough corners — reposition the board";
+  }
+}
+
+window.clearCaptures = function() {
+  captures = [];
+  post("/api/capture/clear");
+  renderCapture($("#sidebar-content"), $("#sidebar-footer"));
+}
+
+// ───────── INTRINSIC RESULT ─────────
+async function runCalibration() {
+  const c = $("#sidebar-content");
+  c.innerHTML = `
+    <div class="section-label">Calibrating…</div>
+    <div class="hint">Running Zhang's method on ${captures.length} captured frames. This may take a moment.</div>
+    <div style="text-align:center;padding:40px"><div class="badge blue">⏳ Computing…</div></div>`;
+  const r = await post("/api/calibrate/intrinsic");
+  if (r.ok) {
+    calibrationResult = r.result;
+    toast(`Calibration complete — RPE: ${r.result.rpe} px`);
+    renderIntrinsic($("#sidebar-content"), $("#sidebar-footer"));
+  } else {
+    toast(r.error || "Calibration failed", false);
+    c.innerHTML = `
+      <div class="section-label" style="color:var(--red)">Calibration Failed</div>
+      <div class="hint">${r.error || "Unknown error"}. Try capturing more frames from diverse angles.</div>`;
+    $("#sidebar-footer").innerHTML = `<button class="btn full" onclick="goStep(2)">← Back to Capture</button>`;
+  }
+}
+
+function renderIntrinsic(c, f) {
+  if (!calibrationResult) { runCalibration(); return; }
+  const r = calibrationResult;
+  stopStream();
+  startStream("undistort");
+  c.innerHTML = `
+    <div class="section-label">Intrinsic Calibration Result</div>
+    <div class="hint">Camera intrinsics estimated from <strong>${r.num_frames} frames</strong>. The live feed now shows the <em>undistorted</em> image.</div>
+    <div style="display:flex;gap:8px;margin-bottom:14px">
+      <span class="badge ${r.rpe < 0.5 ? 'green' : r.rpe < 1.0 ? 'amber' : 'red'}">RPE: ${r.rpe} px</span>
+      <span class="badge blue">${r.image_size[0]}×${r.image_size[1]}</span>
+    </div>
+
+    <div class="section-label">Camera Matrix K</div>
+    <div class="matrix">
+      <div style="display:flex;justify-content:space-between"><span class="val">${fmtNum(r.fx)}</span><span>0</span><span class="val">${fmtNum(r.cx)}</span></div>
+      <div style="display:flex;justify-content:space-between"><span>0</span><span class="val">${fmtNum(r.fy)}</span><span class="val">${fmtNum(r.cy)}</span></div>
+      <div style="display:flex;justify-content:space-between"><span>0</span><span>0</span><span>1</span></div>
+    </div>
+
+    <div class="section-label">Distortion Coefficients</div>
+    <div class="card" style="font-family:var(--mono);font-size:11px;line-height:2">
+      <div style="display:flex;justify-content:space-between"><span style="color:var(--text-dim)">k₁</span><span class="val">${fmtNum(r.k1, 6)}</span></div>
+      <div style="display:flex;justify-content:space-between"><span style="color:var(--text-dim)">k₂</span><span class="val">${fmtNum(r.k2, 6)}</span></div>
+      <div style="display:flex;justify-content:space-between"><span style="color:var(--text-dim)">p₁</span><span class="val">${fmtNum(r.p1, 6)}</span></div>
+      <div style="display:flex;justify-content:space-between"><span style="color:var(--text-dim)">p₂</span><span class="val">${fmtNum(r.p2, 6)}</span></div>
+    </div>
+
+    <div class="section-label">Per-View Reprojection Error</div>
+    <div class="card" style="font-family:var(--mono);font-size:11px">
+      ${r.per_view_errors.map((e, i) => `<div style="display:flex;justify-content:space-between;line-height:1.8"><span style="color:var(--text-dim)">Frame ${i+1}</span><span style="color:${e < 0.5 ? 'var(--green)' : e < 1 ? 'var(--amber)' : 'var(--red)'}">${e} px</span></div>`).join("")}
+    </div>
+
+    <div class="card" style="border-color:rgba(52,211,153,0.15)">
+      <div style="font-size:12px;color:var(--green);line-height:1.6">
+        ${r.rpe < 0.5 ? "✓ Excellent calibration! RPE < 0.5 px is very good."
+          : r.rpe < 1.0 ? "⚠ Decent calibration. For better results, capture more frames from diverse angles."
+          : "⚠ High reprojection error. Consider recapturing with more frames and better angles."}
+      </div>
+    </div>`;
+  f.innerHTML = `
+    <button class="btn" onclick="goStep(2)">← Recapture</button>
+    <button class="btn primary" style="flex:1" onclick="goStep(4)">Extrinsic Calibration →</button>`;
+}
+
+// ───────── EXTRINSIC CAPTURE ─────────
+function renderExtCapture(c, f) {
+  startStream("apriltag");
+  updateCamDot(true);
+  c.innerHTML = `
+    <div class="section-label">AprilTag Extrinsic Calibration</div>
+    <div class="hint">Place the printed <strong>AprilTag</strong> at a known location in your scene. Point the camera at it until it's detected (shown in <em>green</em>).</div>
+
+    <div style="margin-bottom:14px">
+      <span class="badge amber" id="tag-badge">Searching for tag…</span>
+    </div>
+
+    <div class="card">
+      <div style="font-size:12px;color:var(--text-dim);line-height:1.7">
+        <strong>How it works:</strong><br>
+        • The tag's 4 corners define a known 3D square<br>
+        • OpenCV's <code style="color:var(--accent-light)">solvePnP</code> finds the camera pose<br>
+        • You get the rotation matrix R and translation vector t<br>
+        • These describe <em>where the camera is</em> relative to the tag
+      </div>
+    </div>
+
+    <div class="section-label">Tag Configuration</div>
+    <div style="margin-bottom:10px">
+      <label style="font-size:10px;font-family:var(--mono);color:var(--text-dim);display:block;margin-bottom:4px">Printed tag size (mm)</label>
+      <input id="ext-tag-size" type="number" value="${document.getElementById('tag-size')?.value || 50}" min="5" max="500" step="0.1"
+        style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid var(--border2);background:var(--panel2);color:var(--text);font-family:var(--mono);font-size:13px" />
+    </div>
+
+    <div class="card" style="border-color:rgba(251,191,36,0.15)">
+      <div style="font-size:12px;color:var(--amber);line-height:1.6">
+        <strong>Tip:</strong> Keep the tag flat and fully visible. Avoid extreme angles. The closer the tag, the more accurate the pose estimate.
+      </div>
+    </div>`;
+  f.innerHTML = `
+    <button class="btn" onclick="goStep(3)">← Back</button>
+    <button class="btn primary" style="flex:1" id="ext-snap-btn" onclick="snapExtrinsic()">📸 Capture Tag Pose</button>`;
+  // Live tag detection updater
+  if (!window._tagInterval) {
+    window._tagInterval = setInterval(() => {
+      if (currentStep !== 4) { clearInterval(window._tagInterval); window._tagInterval = null; return; }
+      const b = document.getElementById("tag-badge");
+      if (b && lastStatus.apriltag_detected !== undefined) {
+        if (lastStatus.apriltag_detected) {
+          b.textContent = "✓ Tag detected — ready to capture";
+          b.className = "badge green";
+        } else {
+          b.textContent = "Searching for tag…";
+          b.className = "badge amber";
+        }
+      }
+    }, 300);
+  }
+}
+
+window.snapExtrinsic = async function() {
+  const tagSizeMM = parseFloat(document.getElementById("ext-tag-size")?.value || 50);
+  const btn = document.getElementById("ext-snap-btn");
+  btn.disabled = true;
+  btn.textContent = "Capturing…";
+  const r = await post("/api/capture/extrinsic", { tag_size: tagSizeMM / 1000.0 });
+  btn.disabled = false;
+  btn.textContent = "📸 Capture Tag Pose";
+  if (r.ok) {
+    extrinsicResult = r.result;
+    toast(`Tag #${r.result.tag_id} pose solved — RPE: ${r.result.rpe} px`);
+    goStep(5);
+  } else {
+    toast(r.error || "Capture failed", false);
+  }
+}
+
+// ───────── EXTRINSIC RESULT ─────────
+function renderExtrinsic(c, f) {
+  if (!extrinsicResult) { goStep(4); return; }
+  const r = extrinsicResult;
+  stopStream();
+
+  // Show annotated thumbnail
+  const feedArea = document.getElementById("feed-area");
+  const img = document.getElementById("stream-img");
+  if (r.thumbnail) {
+    img.src = "data:image/jpeg;base64," + r.thumbnail;
+    img.style.display = "block";
+    document.getElementById("placeholder").style.display = "none";
+  }
+  updateCamDot(false);
+
+  c.innerHTML = `
+    <div class="section-label">Extrinsic Calibration Result</div>
+    <div class="hint">Camera pose solved relative to <strong>AprilTag #${r.tag_id}</strong> (size: ${(r.tag_size*1000).toFixed(1)} mm).</div>
+    <div style="margin-bottom:14px">
+      <span class="badge ${r.rpe < 1 ? 'green' : r.rpe < 3 ? 'amber' : 'red'}">RPE: ${r.rpe} px</span>
+    </div>
+
+    <div class="section-label">Rotation Matrix R</div>
+    <div class="matrix">
+      ${r.R.map(row => `<div style="display:flex;justify-content:space-between">${row.map(v => `<span class="val" style="width:33%">${fmtNum(v, 4)}</span>`).join("")}</div>`).join("")}
+    </div>
+
+    <div class="section-label">Translation Vector t</div>
+    <div class="matrix">
+      <div style="display:flex;gap:16px">
+        <span style="color:var(--text-dim)">tx</span><span class="val">${fmtNum(r.t[0], 4)} m</span>
+      </div>
+      <div style="display:flex;gap:16px">
+        <span style="color:var(--text-dim)">ty</span><span class="val">${fmtNum(r.t[1], 4)} m</span>
+      </div>
+      <div style="display:flex;gap:16px">
+        <span style="color:var(--text-dim)">tz</span><span class="val">${fmtNum(r.t[2], 4)} m</span>
+      </div>
+    </div>
+
+    <div class="section-label">Rodrigues Vector</div>
+    <div class="card" style="font-family:var(--mono);font-size:11px;line-height:2">
+      [${r.rvec.map(v => fmtNum(v, 4)).join(", ")}]
+    </div>
+
+    <div class="section-label">Distance to Tag</div>
+    <div class="card">
+      <div style="font-size:20px;color:var(--accent-light);font-family:var(--mono);font-weight:500">
+        ${fmtNum(Math.sqrt(r.t[0]**2 + r.t[1]**2 + r.t[2]**2) * 100, 1)} cm
+      </div>
+      <div style="font-size:11px;color:var(--text-dim);margin-top:4px">Euclidean distance from camera to tag center</div>
+    </div>`;
+  f.innerHTML = `
+    <button class="btn" onclick="goStep(4)">← Recapture</button>
+    <button class="btn primary" style="flex:1" onclick="goStep(6)">Hand-Eye Calibration →</button>
+    <button class="btn" onclick="goStep(9)">Skip →</button>`;
+}
+
+// ───────── HAND-EYE CAPTURE ─────────
+let heConfigMode = "eye-in-hand";
+
+function heInstructions(cfg) {
+  if (cfg === "eye-in-hand") return {
+    diagram: `<div style="font-family:var(--mono);font-size:10px;color:var(--text-dim);line-height:1.8;padding:8px 12px;background:rgba(74,124,255,0.04);border-radius:6px;margin-bottom:12px">
+      <span style="color:var(--green)">Robot Base</span> → <span style="color:var(--amber)">EE + Camera</span> → observes → <span style="color:var(--accent-light)">AprilTag (fixed in world)</span>
+    </div>`,
+    setup: `The camera is <strong>mounted on the robot's end-effector</strong> and moves with it. The AprilTag is placed at a <strong>fixed location</strong> in the workspace — it does not move.`,
+    steps: `1. Place the AprilTag on a stable surface — <strong>do not move it</strong><br>
+        2. Move the <em>robot</em> to a new pose (camera moves with the EE)<br>
+        3. Read the EE pose from your robot controller<br>
+        4. Enter it below and click <em>Add Pair</em><br>
+        5. Repeat ≥ 3 times (5–8 recommended) from diverse poses`,
+    tips: `• The AprilTag must remain <strong>completely stationary</strong> throughout all captures<br>
+        • Move the robot to significantly different orientations between captures<br>
+        • Include tilts of 15–45° around different axes<br>
+        • Keep the tag visible and well-lit throughout<br>
+        • Double-check each EE pose value before adding`,
+    solves: `Solves for <strong>T<sub>cam←ee</sub></strong> — the rigid transform from the end-effector frame to the camera frame.`,
+    inputLabel: `End-Effector Pose (meters &amp; radians)`,
+    inputHint: `Enter the current EE pose from your robot controller. <em>Position</em> in meters, <em>rotation</em> as Rodrigues angles (axis-angle) in radians.`,
+    needsRotation: true,
+  };
+  if (cfg === "eye-to-hand") return {
+    diagram: `<div style="font-family:var(--mono);font-size:10px;color:var(--text-dim);line-height:1.8;padding:8px 12px;background:rgba(74,124,255,0.04);border-radius:6px;margin-bottom:12px">
+      <span style="color:var(--green)">Fixed Camera</span> → observes → <span style="color:var(--amber)">AprilTag on EE</span> ← attached to ← <span style="color:var(--accent-light)">Robot</span>
+    </div>`,
+    setup: `The camera is <strong>fixed in the workspace</strong> (e.g. mounted on a tripod or wall). The AprilTag is <strong>rigidly attached to the robot's end-effector</strong> and moves with it.`,
+    steps: `1. Attach the AprilTag rigidly to the robot's end-effector — it must <strong>move with the EE</strong><br>
+        2. Move the <em>robot</em> to a new pose (tag moves with EE)<br>
+        3. Ensure the camera can still see the tag<br>
+        4. Read the EE pose from your robot controller<br>
+        5. Enter it below and click <em>Add Pair</em><br>
+        6. Repeat ≥ 3 times (5–8 recommended) from diverse poses`,
+    tips: `• The camera must remain <strong>completely stationary</strong> — do not bump or adjust it<br>
+        • The AprilTag must be <strong>rigidly fixed to the EE</strong> — no tape that could shift<br>
+        • Move the robot to significantly different orientations between captures<br>
+        • Include tilts of 15–45° around different axes<br>
+        • Make sure the tag is always fully visible to the camera`,
+    solves: `Solves for <strong>T<sub>cam←base</sub></strong> — the rigid transform from the robot base frame to the camera frame.`,
+    inputLabel: `End-Effector Pose (meters &amp; radians)`,
+    inputHint: `Enter the current EE pose from your robot controller. <em>Position</em> in meters, <em>rotation</em> as Rodrigues angles (axis-angle) in radians.`,
+    needsRotation: true,
+  };
+  // touch-point
+  return {
+    diagram: `<div style="font-family:var(--mono);font-size:10px;color:var(--text-dim);line-height:1.8;padding:8px 12px;background:rgba(74,124,255,0.04);border-radius:6px;margin-bottom:12px">
+      <span style="color:var(--green)">Fixed Camera</span> → observes → <span style="color:var(--accent-light)">AprilTag (fixed)</span> ← touched by ← <span style="color:var(--amber)">Robot TCP</span>
+    </div>`,
+    setup: `The camera is <strong>fixed</strong> and observes the workspace. The robot physically <strong>touches the center of the AprilTag</strong> with its calibrated tool center point (TCP). This gives direct 3D point correspondences between camera and robot frames — <em>no rotation needed</em>.`,
+    steps: `1. Place the AprilTag flat on a surface the robot can reach<br>
+        2. Jog the robot so the <strong>TCP touches the tag center</strong><br>
+        3. Read the <strong>TCP position</strong> (x, y, z only) from the controller<br>
+        4. Enter it below and click <em>Add Point</em><br>
+        5. Move the tag to a <strong>new location</strong> and repeat<br>
+        6. Collect ≥ 3 points — use <strong>different heights</strong> (non-coplanar) for best results`,
+    tips: `• Your robot's <strong>TCP must be calibrated</strong> — the accuracy of this method depends entirely on TCP accuracy<br>
+        • You only need position (x, y, z) — no rotation input required<br>
+        • Spread points across the workspace — <strong>avoid a straight line</strong><br>
+        • Use <strong>different Z heights</strong> (e.g. tag on table, tag on a box) to avoid coplanar degeneracy<br>
+        • 4–6 well-spread points is usually sufficient<br>
+        • The tag can move between captures — just touch its center each time`,
+    solves: `Solves for <strong>T<sub>cam←base</sub></strong> via SVD point registration (Procrustes). Finds the rigid transform mapping robot base points to camera-frame points.`,
+    inputLabel: `TCP Position (meters)`,
+    inputHint: `Enter the robot's <strong>tool center point position</strong> from your controller. Only translation — no rotation needed.`,
+    needsRotation: false,
+  };
+}
+
+function renderHECapture(c, f) {
+  startStream("handeye");
+  updateCamDot(true);
+  const tagMM = document.getElementById('tag-size')?.value || document.getElementById('ext-tag-size')?.value || 50;
+  post("/api/handeye/config", { config: heConfigMode, tag_size: parseFloat(tagMM) / 1000 });
+
+  const info = heInstructions(heConfigMode);
+
+  c.innerHTML = `
+    <div class="section-label">Hand-Eye Calibration</div>
+    <div class="hint">This step computes the rigid transform between your <strong>camera</strong> and a <strong>robot</strong>. You'll capture multiple pose pairs: for each, you enter the robot's EE pose while the camera sees the AprilTag.</div>
+
+    <div class="section-label">Configuration</div>
+    <div style="margin-bottom:12px">
+      <label style="font-size:10px;font-family:var(--mono);color:var(--text-dim);display:block;margin-bottom:4px">Setup type</label>
+      <select id="he-config" onchange="updateHEConfig()"
+        style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid var(--border2);background:var(--panel2);color:var(--text);font-family:var(--mono);font-size:12px">
+        <option value="eye-in-hand" ${heConfigMode==="eye-in-hand"?"selected":""}>Eye-in-Hand (camera mounted on robot EE)</option>
+        <option value="eye-to-hand" ${heConfigMode==="eye-to-hand"?"selected":""}>Eye-to-Hand (fixed camera, tag on robot EE)</option>
+        <option value="touch-point" ${heConfigMode==="touch-point"?"selected":""}>Touch-Point (fixed camera, robot touches tag center)</option>
+      </select>
+    </div>
+
+    <div id="he-info-block">
+      ${info.diagram}
+      <div class="hint">${info.setup}</div>
+      <div class="card" style="border-color:rgba(74,124,255,0.15)">
+        <div style="font-size:12px;color:var(--accent-light);line-height:1.7">
+          <strong>Procedure:</strong><br>
+          ${info.steps}
+        </div>
+      </div>
+      <div class="hint" style="margin-top:10px;font-size:11px">${info.solves}</div>
+    </div>
+
+    <div class="section-label" id="he-input-label">${info.inputLabel}</div>
+    <div class="hint" id="he-input-hint">${info.inputHint}</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:8px">
+      <div>
+        <label style="font-size:9px;font-family:var(--mono);color:var(--text-micro);display:block;margin-bottom:3px">X (m)</label>
+        <input id="ee-x" type="number" value="0" step="0.001" style="width:100%;padding:6px 8px;border-radius:5px;border:1px solid var(--border2);background:var(--panel2);color:var(--text);font-family:var(--mono);font-size:12px" />
+      </div>
+      <div>
+        <label style="font-size:9px;font-family:var(--mono);color:var(--text-micro);display:block;margin-bottom:3px">Y (m)</label>
+        <input id="ee-y" type="number" value="0" step="0.001" style="width:100%;padding:6px 8px;border-radius:5px;border:1px solid var(--border2);background:var(--panel2);color:var(--text);font-family:var(--mono);font-size:12px" />
+      </div>
+      <div>
+        <label style="font-size:9px;font-family:var(--mono);color:var(--text-micro);display:block;margin-bottom:3px">Z (m)</label>
+        <input id="ee-z" type="number" value="0" step="0.001" style="width:100%;padding:6px 8px;border-radius:5px;border:1px solid var(--border2);background:var(--panel2);color:var(--text);font-family:var(--mono);font-size:12px" />
+      </div>
+    </div>
+    <div id="he-rot-row" style="display:${info.needsRotation ? 'grid' : 'none'};grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:14px">
+      <div>
+        <label style="font-size:9px;font-family:var(--mono);color:var(--text-micro);display:block;margin-bottom:3px">Rx (rad)</label>
+        <input id="ee-rx" type="number" value="0" step="0.001" style="width:100%;padding:6px 8px;border-radius:5px;border:1px solid var(--border2);background:var(--panel2);color:var(--text);font-family:var(--mono);font-size:12px" />
+      </div>
+      <div>
+        <label style="font-size:9px;font-family:var(--mono);color:var(--text-micro);display:block;margin-bottom:3px">Ry (rad)</label>
+        <input id="ee-ry" type="number" value="0" step="0.001" style="width:100%;padding:6px 8px;border-radius:5px;border:1px solid var(--border2);background:var(--panel2);color:var(--text);font-family:var(--mono);font-size:12px" />
+      </div>
+      <div>
+        <label style="font-size:9px;font-family:var(--mono);color:var(--text-micro);display:block;margin-bottom:3px">Rz (rad)</label>
+        <input id="ee-rz" type="number" value="0" step="0.001" style="width:100%;padding:6px 8px;border-radius:5px;border:1px solid var(--border2);background:var(--panel2);color:var(--text);font-family:var(--mono);font-size:12px" />
+      </div>
+    </div>
+
+    <button class="btn full" id="he-add-btn" onclick="addHEPair()" style="margin-bottom:14px">${heConfigMode === 'touch-point' ? '📍 Add Point' : '📸 Add Pose Pair'}</button>
+
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+      <span class="badge ${handeyePairs.length >= 3 ? 'green' : 'amber'}" id="he-pair-badge">${handeyePairs.length} / 3+ pairs</span>
+      <span class="badge blue" id="he-tag-badge">—</span>
+    </div>
+    <div class="progress-bar"><div class="fill" id="he-progress" style="width:${Math.min(100, (handeyePairs.length / 3) * 100)}%"></div></div>
+
+    <div class="captures-grid" id="he-grid"></div>
+
+    <div id="he-feedback" style="font-size:12px;color:var(--text-dim);text-align:center;min-height:20px"></div>
+
+    <div class="card" style="border-color:rgba(251,191,36,0.15);margin-top:10px" id="he-tips-card">
+      <div style="font-size:12px;color:var(--amber);line-height:1.6">
+        <strong>Tips for accuracy:</strong><br>
+        ${info.tips}
+      </div>
+    </div>`;
+  renderHEGrid();
+  f.innerHTML = `
+    <button class="btn" onclick="goStep(5)">← Back</button>
+    <button class="btn danger sm" onclick="clearHEPairs()">Clear</button>
+    <button class="btn primary" style="flex:1" id="he-cal-btn" ${handeyePairs.length < 3 ? 'disabled' : ''} onclick="runHECalibration()">Calibrate Hand-Eye →</button>`;
+
+  // Live tag status updater
+  if (!window._heInterval) {
+    window._heInterval = setInterval(() => {
+      if (currentStep !== 6) { clearInterval(window._heInterval); window._heInterval = null; return; }
+      const b = document.getElementById("he-tag-badge");
+      if (b && lastStatus.apriltag_detected !== undefined) {
+        b.textContent = lastStatus.apriltag_detected ? "✓ Tag visible" : "No tag";
+        b.className = "badge " + (lastStatus.apriltag_detected ? "green" : "red");
+      }
+    }, 300);
+  }
+}
+
+function renderHEGrid() {
+  const grid = document.getElementById("he-grid");
+  if (!grid) return;
+  grid.innerHTML = handeyePairs.map((p, i) =>
+    `<div class="capture-thumb"><img src="data:image/jpeg;base64,${p.thumbnail}" /><div class="idx">#${i + 1}</div></div>`
+  ).join("");
+}
+
+window.updateHEConfig = function() {
+  const sel = document.getElementById("he-config");
+  if (!sel) return;
+  heConfigMode = sel.value;
+  post("/api/handeye/config", { config: heConfigMode });
+
+  const info = heInstructions(heConfigMode);
+
+  // Swap instruction block
+  const infoBlock = document.getElementById("he-info-block");
+  if (infoBlock) {
+    infoBlock.innerHTML = `
+      ${info.diagram}
+      <div class="hint">${info.setup}</div>
+      <div class="card" style="border-color:rgba(74,124,255,0.15)">
+        <div style="font-size:12px;color:var(--accent-light);line-height:1.7">
+          <strong>Procedure:</strong><br>
+          ${info.steps}
+        </div>
+      </div>
+      <div class="hint" style="margin-top:10px;font-size:11px">${info.solves}</div>`;
+  }
+
+  // Swap form labels
+  const il = document.getElementById("he-input-label");
+  if (il) il.innerHTML = info.inputLabel;
+  const ih = document.getElementById("he-input-hint");
+  if (ih) ih.innerHTML = info.inputHint;
+
+  // Show/hide rotation row
+  const rr = document.getElementById("he-rot-row");
+  if (rr) rr.style.display = info.needsRotation ? "grid" : "none";
+
+  // Update button text
+  const btn = document.getElementById("he-add-btn");
+  if (btn) btn.textContent = heConfigMode === "touch-point" ? "📍 Add Point" : "📸 Add Pose Pair";
+
+  // Swap tips
+  const tipsCard = document.getElementById("he-tips-card");
+  if (tipsCard) {
+    tipsCard.innerHTML = `
+      <div style="font-size:12px;color:var(--amber);line-height:1.6">
+        <strong>Tips for accuracy:</strong><br>
+        ${info.tips}
+      </div>`;
+  }
+
+  // Warn if switching config with existing pairs
+  if (handeyePairs.length > 0) {
+    toast("Config changed — existing pairs may be invalid. Consider clearing.", false);
+  }
+}
+
+window.addHEPair = async function() {
+  const btn = document.getElementById("he-add-btn");
+  const fb = document.getElementById("he-feedback");
+  btn.disabled = true;
+
+  let r;
+  if (heConfigMode === "touch-point") {
+    btn.textContent = "Capturing…";
+    const vals = ["ee-x","ee-y","ee-z"].map(id => parseFloat(document.getElementById(id)?.value || 0));
+    r = await post("/api/touchpoint/pair", { tcp_pos: vals });
+  } else {
+    btn.textContent = "Capturing…";
+    const vals = ["ee-x","ee-y","ee-z","ee-rx","ee-ry","ee-rz"].map(id => parseFloat(document.getElementById(id)?.value || 0));
+    r = await post("/api/handeye/pair", { ee_pose: vals });
+  }
+
+  btn.disabled = false;
+  btn.textContent = heConfigMode === "touch-point" ? "📍 Add Point" : "📸 Add Pose Pair";
+
+  if (r.ok) {
+    handeyePairs.push({ thumbnail: r.thumbnail });
+    const label = heConfigMode === "touch-point" ? "Point" : "Pair";
+    toast(`${label} #${r.num_pairs} added`);
+    fb.style.color = "var(--green)"; fb.textContent = `${label} #${r.num_pairs} saved`;
+    renderHEGrid();
+    const p = document.getElementById("he-progress");
+    if (p) p.style.width = Math.min(100, (handeyePairs.length / 3) * 100) + "%";
+    const b = document.getElementById("he-pair-badge");
+    if (b) { b.textContent = `${handeyePairs.length} / 3+ ${heConfigMode === "touch-point" ? "points" : "pairs"}`; b.className = "badge " + (handeyePairs.length >= 3 ? "green" : "amber"); }
+    const cb = document.getElementById("he-cal-btn");
+    if (cb && handeyePairs.length >= 3) cb.disabled = false;
+  } else {
+    toast(r.error || "Failed to add", false);
+    fb.style.color = "var(--red)"; fb.textContent = r.error || "Failed — ensure tag is visible";
+  }
+}
+
+window.clearHEPairs = function() {
+  handeyePairs = [];
+  handeyeResult = null;
+  post("/api/handeye/clear");
+  renderHECapture($("#sidebar-content"), $("#sidebar-footer"));
+}
+
+window.runHECalibration = async function() {
+  const c = $("#sidebar-content");
+  const isTouchPoint = heConfigMode === "touch-point";
+  c.innerHTML = `
+    <div class="section-label">Computing ${isTouchPoint ? 'Point Registration' : 'Hand-Eye Transform'}…</div>
+    <div class="hint">${isTouchPoint
+      ? `Running SVD rigid body registration (Procrustes) on ${handeyePairs.length} point correspondences.`
+      : `Running all 5 OpenCV methods (Tsai, Park, Horaud, Andreff, Daniilidis) and selecting the best.`}</div>
+    <div style="text-align:center;padding:40px"><div class="badge blue">⏳ Computing…</div></div>`;
+
+  const endpoint = isTouchPoint ? "/api/calibrate/touchpoint" : "/api/calibrate/handeye";
+  const r = await post(endpoint);
+
+  if (r.ok) {
+    handeyeResult = r.result;
+    toast(`Calibrated — ${r.result.method} (${isTouchPoint ? 'RMSE: ' + r.result.rmse_mm + ' mm' : 'residual: ' + r.result.residual})`);
+    goStep(7);
+  } else {
+    toast(r.error || "Calibration failed", false);
+    c.innerHTML = `
+      <div class="section-label" style="color:var(--red)">Calibration Failed</div>
+      <div class="hint">${r.error || "Unknown error"}. ${isTouchPoint ? 'Ensure you have ≥ 3 non-collinear points at different heights.' : 'Ensure you have ≥ 3 diverse pose pairs.'}</div>`;
+    $("#sidebar-footer").innerHTML = `<button class="btn full" onclick="goStep(6)">← Back to Capture</button>`;
+  }
+}
+
+// ───────── HAND-EYE RESULT ─────────
+function renderHEResult(c, f) {
+  if (!handeyeResult) { goStep(6); return; }
+  const r = handeyeResult;
+  const isTP = r.config === "touch-point";
+  // Keep handeye stream running so tag overlay is visible
+  startStream("handeye");
+  updateCamDot(true);
+
+  c.innerHTML = `
+    <div class="section-label">${isTP ? 'Point Registration' : 'Hand-Eye Calibration'} Result</div>
+    <div class="hint">Transform computed via <strong>${r.method}</strong> using ${r.num_pairs} ${isTP ? 'point correspondences' : 'pose pairs'} in <em>${r.config}</em> configuration. The live feed shows the derived frame projected onto the tag.</div>
+
+    <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
+      <span class="badge green">${r.method}</span>
+      <span class="badge blue">${r.config}</span>
+      ${isTP
+        ? `<span class="badge ${(r.rmse_mm||0) < 3 ? 'green' : (r.rmse_mm||0) < 10 ? 'amber' : 'red'}">RMSE: ${r.rmse_mm || fmtNum(r.residual*1000, 3)} mm</span>`
+        : `<span class="badge ${r.residual < 0.1 ? 'green' : r.residual < 0.5 ? 'amber' : 'red'}">Residual: ${fmtNum(r.residual, 6)}</span>`
+      }
+    </div>
+
+    ${(r.warning) ? `
+    <div class="card" style="border-color:rgba(248,113,113,0.2);margin-bottom:14px">
+      <div style="font-size:12px;color:var(--red);line-height:1.6">
+        <strong>⚠ Warning:</strong> ${r.warning}
+      </div>
+    </div>` : ''}
+
+    <div class="section-label">Rotation Matrix R</div>
+    <div class="matrix">
+      ${r.R.map(row => `<div style="display:flex;justify-content:space-between">${row.map(v => `<span class="val" style="width:33%">${fmtNum(v, 5)}</span>`).join("")}</div>`).join("")}
+    </div>
+
+    <div class="section-label">Translation Vector t</div>
+    <div class="matrix">
+      <div style="display:flex;gap:16px"><span style="color:var(--text-dim)">tx</span><span class="val">${fmtNum(r.t[0], 5)} m</span></div>
+      <div style="display:flex;gap:16px"><span style="color:var(--text-dim)">ty</span><span class="val">${fmtNum(r.t[1], 5)} m</span></div>
+      <div style="display:flex;gap:16px"><span style="color:var(--text-dim)">tz</span><span class="val">${fmtNum(r.t[2], 5)} m</span></div>
+    </div>
+
+    <div class="section-label">Rodrigues Vector</div>
+    <div class="card" style="font-family:var(--mono);font-size:11px;line-height:2">
+      [${r.rvec.map(v => fmtNum(v, 5)).join(", ")}]
+    </div>
+
+    ${isTP ? `
+    <div class="section-label">Point-by-Point Error</div>
+    <div class="card" style="font-family:var(--mono);font-size:10px;line-height:1.8">
+      ${(r.per_point_errors_mm || []).map((e, i) =>
+        `<div style="display:flex;justify-content:space-between"><span style="color:var(--text-dim)">Point ${i+1}</span><span style="color:${e < 3 ? 'var(--green)' : e < 10 ? 'var(--amber)' : 'var(--red)'}">${e} mm</span></div>`
+      ).join("")}
+      <div style="height:1px;background:var(--border);margin:6px 0"></div>
+      <div style="display:flex;justify-content:space-between"><span style="color:var(--text-dim)">RMSE</span><span style="color:var(--green)">${r.rmse_mm} mm</span></div>
+      <div style="display:flex;justify-content:space-between"><span style="color:var(--text-dim)">Max error</span><span>${r.max_error_mm} mm</span></div>
+      <div style="display:flex;justify-content:space-between"><span style="color:var(--text-dim)">Collinearity</span><span style="color:${(r.collinearity_score||0) < 0.05 ? 'var(--red)' : 'var(--green)'}">${fmtNum(r.collinearity_score, 4)} ${(r.collinearity_score||0) < 0.05 ? '⚠ coplanar' : '✓'}</span></div>
+    </div>
+    ` : `
+    <div class="section-label">All Methods Compared</div>
+    <div class="card" style="font-family:var(--mono);font-size:10px;line-height:1.8">
+      ${Object.entries(r.all_methods || {}).map(([name, m]) =>
+        m.error
+          ? `<div style="display:flex;justify-content:space-between"><span style="color:var(--text-dim)">${name}</span><span style="color:var(--red)">failed</span></div>`
+          : `<div style="display:flex;justify-content:space-between"><span style="color:${name === r.method ? 'var(--green)' : 'var(--text-dim)'}">${name}${name === r.method ? ' ✓' : ''}</span><span>${fmtNum(m.residual, 6)}</span></div>`
+      ).join("")}
+    </div>
+    `}
+
+    <div class="card" style="border-color:rgba(52,211,153,0.15)">
+      <div style="font-size:12px;color:var(--green);line-height:1.6">
+        <strong>Live overlay:</strong> The yellow frame on the video shows the ${isTP ? 'registration' : 'hand-eye'} transform composed with the tag pose. If it looks wrong, proceed to the adjustment step to tune it.
+      </div>
+    </div>`;
+  f.innerHTML = `
+    <button class="btn" onclick="goStep(6)">← Recapture</button>
+    <button class="btn primary" style="flex:1" onclick="goStep(8)">Adjust Transform →</button>`;
+}
+
+// ───────── HAND-EYE ADJUST ─────────
+function renderHEAdjust(c, f) {
+  if (!handeyeResult) { goStep(6); return; }
+  const r = handeyeResult;
+  startStream("handeye");
+  updateCamDot(true);
+
+  function makeSlider(id, label, value, min, max, step, unit = "") {
+    const pct = ((value - min) / (max - min)) * 100;
+    const dec = step < 0.01 ? 5 : step < 1 ? 3 : 1;
+    return `<div class="slider-group" id="sg-${id}">
+      <div class="slider-header">
+        <span class="lbl">${label}</span>
+        <input class="val" id="sv-${id}" type="text" value="${fmtNum(value, dec)}${unit}"
+          data-min="${min}" data-max="${max}" data-step="${step}" data-unit="${unit}" data-dec="${dec}"
+          onchange="sliderValFromInput('${id}', this, ${min}, ${max}, ${step}, v => onHESlider('${id}', v, ${min}, ${max}, ${step}))"
+          onkeydown="if(event.key==='Enter'){this.blur()}" />
+      </div>
+      <div class="slider-track">
+        <div class="bg"></div>
+        <div class="fill" id="sf-${id}" style="width:${pct}%"></div>
+        <input type="range" min="${min}" max="${max}" step="${step}" value="${value}"
+          oninput="onHESlider('${id}', this.value, ${min}, ${max}, ${step})" />
+        <div class="thumb" id="st-${id}" style="left:calc(${pct}% - 6px)"></div>
+      </div>
+    </div>`;
+  }
+
+  c.innerHTML = `
+    <div class="section-label">Adjust Hand-Eye Transform</div>
+    <div class="hint">Fine-tune the hand-eye transform while watching the <em>live overlay</em>. The yellow frame should align with the physical relationship between camera and end-effector.</div>
+
+    <div class="section-label">Rotation (Rodrigues)</div>
+    ${makeSlider("he-rv0", "rvec[0]", r.rvec[0], -3.15, 3.15, 0.001, " rad")}
+    ${makeSlider("he-rv1", "rvec[1]", r.rvec[1], -3.15, 3.15, 0.001, " rad")}
+    ${makeSlider("he-rv2", "rvec[2]", r.rvec[2], -3.15, 3.15, 0.001, " rad")}
+
+    <div class="divider"></div>
+    <div class="section-label">Translation</div>
+    ${makeSlider("he-tx", "tx", r.t[0], -1, 1, 0.0005, " m")}
+    ${makeSlider("he-ty", "ty", r.t[1], -1, 1, 0.0005, " m")}
+    ${makeSlider("he-tz", "tz", r.t[2], -1, 1, 0.0005, " m")}
+
+    <div class="divider"></div>
+    <div class="section-label">Live Diagnostics</div>
+    <div class="card" style="font-family:var(--mono);font-size:10px;line-height:1.8" id="he-diag">
+      <div style="display:flex;justify-content:space-between"><span style="color:var(--text-dim)">Method</span><span>${r.method}</span></div>
+      <div style="display:flex;justify-content:space-between"><span style="color:var(--text-dim)">Config</span><span>${r.config}</span></div>
+      <div style="display:flex;justify-content:space-between"><span style="color:var(--text-dim)">||t||</span><span id="he-dist">${fmtNum(Math.sqrt(r.t[0]**2+r.t[1]**2+r.t[2]**2)*1000, 1)} mm</span></div>
+    </div>
+
+    <div class="card" style="border-color:rgba(52,211,153,0.15)">
+      <div style="font-size:12px;color:var(--green);line-height:1.6">
+        <strong>What to look for:</strong> Move the robot around — the projected yellow frame should remain consistent relative to the tag. If it drifts or flips, adjust rotation. If offset is wrong, adjust translation.
+      </div>
+    </div>`;
+  f.innerHTML = `
+    <button class="btn" onclick="goStep(7)">← Back</button>
+    <button class="btn primary" style="flex:1" onclick="goStep(9)">Continue to Final Adjust →</button>`;
+}
+
+let _heSliderTimeout = null;
+window.onHESlider = function(id, rawVal, min, max, step) {
+  const val = parseFloat(rawVal);
+  const pct = ((val - min) / (max - min)) * 100;
+  const sv = document.getElementById("sv-" + id);
+  const sf = document.getElementById("sf-" + id);
+  const st = document.getElementById("st-" + id);
+  const unit = id.startsWith("he-rv") ? " rad" : " m";
+  const dec = step < 0.01 ? 5 : step < 1 ? 3 : 1;
+  if (sv) sv.value = fmtNum(val, dec) + unit;
+  if (sf) sf.style.width = pct + "%";
+  if (st) st.style.left = `calc(${pct}% - 6px)`;
+
+  clearTimeout(_heSliderTimeout);
+  _heSliderTimeout = setTimeout(() => {
+    const rvec = [0,1,2].map(i => {
+      const el = document.querySelector(`#sg-he-rv${i} input[type=range]`);
+      return el ? parseFloat(el.value) : (handeyeResult?.rvec?.[i] || 0);
+    });
+    const t = ["he-tx","he-ty","he-tz"].map(k => {
+      const el = document.querySelector(`#sg-${k} input[type=range]`);
+      return el ? parseFloat(el.value) : 0;
+    });
+    post("/api/adjust/handeye", { rvec, t });
+    if (handeyeResult) { handeyeResult.rvec = rvec; handeyeResult.t = t; }
+
+    // Update distance display
+    const d = document.getElementById("he-dist");
+    if (d) d.textContent = fmtNum(Math.sqrt(t[0]**2+t[1]**2+t[2]**2)*1000, 1) + " mm";
+  }, 80);
+}
+
+// ───────── ADJUST ─────────
+function renderAdjust(c, f) {
+  stopStream();
+  startStream("undistort");
+  updateCamDot(true);
+
+  const cal = calibrationResult || {};
+  const ext = extrinsicResult || {};
+  const hasExt = !!extrinsicResult;
+
+  function makeSlider(id, label, value, min, max, step, unit = "") {
+    const pct = ((value - min) / (max - min)) * 100;
+    const dec = step < 0.01 ? 6 : step < 1 ? 2 : 1;
+    return `<div class="slider-group" id="sg-${id}">
+      <div class="slider-header">
+        <span class="lbl">${label}</span>
+        <input class="val" id="sv-${id}" type="text" value="${fmtNum(value, dec)}${unit}"
+          data-min="${min}" data-max="${max}" data-step="${step}" data-unit="${unit}" data-dec="${dec}"
+          onchange="sliderValFromInput('${id}', this, ${min}, ${max}, ${step}, v => onSlider('${id}', v, ${min}, ${max}, ${step}))"
+          onkeydown="if(event.key==='Enter'){this.blur()}" />
+      </div>
+      <div class="slider-track">
+        <div class="bg"></div>
+        <div class="fill" id="sf-${id}" style="width:${pct}%"></div>
+        <input type="range" min="${min}" max="${max}" step="${step}" value="${value}"
+          oninput="onSlider('${id}', this.value, ${min}, ${max}, ${step})" />
+        <div class="thumb" id="st-${id}" style="left:calc(${pct}% - 6px)"></div>
+      </div>
+    </div>`;
+  }
+
+  c.innerHTML = `
+    <div class="section-label">Manual Adjustment</div>
+    <div class="hint">Fine-tune any parameter. The live feed shows the <em>undistorted</em> image in real time so you can see the effect of your changes.</div>
+
+    <div class="section-label">Focal Length</div>
+    ${makeSlider("fx", "fx", cal.fx || 800, 100, 3000, 1, " px")}
+    ${makeSlider("fy", "fy", cal.fy || 800, 100, 3000, 1, " px")}
+
+    <div class="divider"></div>
+    <div class="section-label">Principal Point</div>
+    ${makeSlider("cx", "cx", cal.cx || 320, 0, (cal.image_size?.[0] || 1280), 1, " px")}
+    ${makeSlider("cy", "cy", cal.cy || 240, 0, (cal.image_size?.[1] || 720), 1, " px")}
+
+    <div class="divider"></div>
+    <div class="section-label">Radial Distortion</div>
+    ${makeSlider("k1", "k1", cal.k1 || 0, -2, 2, 0.0001)}
+    ${makeSlider("k2", "k2", cal.k2 || 0, -1, 1, 0.0001)}
+
+    <div class="divider"></div>
+    <div class="section-label">Tangential Distortion</div>
+    ${makeSlider("p1", "p1", cal.p1 || 0, -0.1, 0.1, 0.00001)}
+    ${makeSlider("p2", "p2", cal.p2 || 0, -0.1, 0.1, 0.00001)}
+
+    ${hasExt ? `
+    <div class="divider"></div>
+    <div class="section-label">Extrinsic — Rodrigues (rotation)</div>
+    ${makeSlider("rv0", "rvec[0]", ext.rvec[0], -3.15, 3.15, 0.001, " rad")}
+    ${makeSlider("rv1", "rvec[1]", ext.rvec[1], -3.15, 3.15, 0.001, " rad")}
+    ${makeSlider("rv2", "rvec[2]", ext.rvec[2], -3.15, 3.15, 0.001, " rad")}
+
+    <div class="divider"></div>
+    <div class="section-label">Extrinsic — Translation</div>
+    ${makeSlider("tx", "tx", ext.t[0], -2, 2, 0.001, " m")}
+    ${makeSlider("ty", "ty", ext.t[1], -2, 2, 0.001, " m")}
+    ${makeSlider("tz", "tz", ext.t[2], 0, 5, 0.001, " m")}
+    ` : ""}
+
+    <div class="card" style="margin-top:16px;border-color:rgba(52,211,153,0.15)">
+      <div style="font-size:12px;color:var(--green);line-height:1.6">
+        <strong>Note:</strong> Adjustments are applied in real time. The undistorted feed updates as you move the sliders. Changes persist to the export.
+      </div>
+    </div>`;
+  f.innerHTML = `
+    <button class="btn" onclick="goStep(${handeyeResult ? 8 : hasExt ? 5 : 3})">← Back</button>
+    <button class="btn primary" style="flex:1" onclick="goStep(10)">Export Results →</button>`;
+}
+
+// Debounced slider update
+let _sliderTimeout = null;
+window.onSlider = function(id, rawVal, min, max, step) {
+  const val = parseFloat(rawVal);
+  const pct = ((val - min) / (max - min)) * 100;
+  const sv = document.getElementById("sv-" + id);
+  const sf = document.getElementById("sf-" + id);
+  const st = document.getElementById("st-" + id);
+  const dec = step < 0.01 ? 6 : step < 1 ? 2 : 1;
+  const unit = (id === "fx" || id === "fy" || id === "cx" || id === "cy") ? " px" : id.startsWith("rv") ? " rad" : (id === "tx" || id === "ty" || id === "tz") ? " m" : "";
+  if (sv) sv.value = fmtNum(val, dec) + unit;
+  if (sf) sf.style.width = pct + "%";
+  if (st) st.style.left = `calc(${pct}% - 6px)`;
+
+  clearTimeout(_sliderTimeout);
+  _sliderTimeout = setTimeout(() => {
+    // Determine which params changed
+    const intrinsicKeys = ["fx","fy","cx","cy","k1","k2","p1","p2"];
+    const extRvecKeys = ["rv0","rv1","rv2"];
+    const extTKeys = ["tx","ty","tz"];
+
+    if (intrinsicKeys.includes(id)) {
+      const params = {};
+      intrinsicKeys.forEach(k => {
+        const el = document.querySelector(`#sg-${k} input[type=range]`);
+        if (el) params[k] = parseFloat(el.value);
+      });
+      post("/api/adjust/intrinsic", params);
+      if (calibrationResult) Object.assign(calibrationResult, params);
+    } else if (extRvecKeys.includes(id) || extTKeys.includes(id)) {
+      const rvec = [0,1,2].map(i => {
+        const el = document.querySelector(`#sg-rv${i} input[type=range]`);
+        return el ? parseFloat(el.value) : (extrinsicResult?.rvec?.[i] || 0);
+      });
+      const t = ["tx","ty","tz"].map(k => {
+        const el = document.querySelector(`#sg-${k} input[type=range]`);
+        return el ? parseFloat(el.value) : 0;
+      });
+      post("/api/adjust/extrinsic", { rvec, t });
+      if (extrinsicResult) { extrinsicResult.rvec = rvec; extrinsicResult.t = t; }
+    }
+  }, 100);
+}
+
+// ───────── EXPORT ─────────
+function renderExport(c, f) {
+  stopStream();
+  updateCamDot(false);
+  $("#stream-img").style.display = "none";
+  $("#placeholder").style.display = "flex";
+  const cal = calibrationResult || {};
+  const ext = extrinsicResult;
+  const he = handeyeResult;
+
+  c.innerHTML = `
+    <div class="section-label">Export Calibration</div>
+    <div class="hint">Download your calibration as a <strong>JSON file</strong> containing all intrinsic, extrinsic, and hand-eye parameters.</div>
+
+    <div class="card">
+      <div style="font-size:13px;color:var(--text);margin-bottom:8px;font-weight:500">Summary</div>
+      <div style="font-size:12px;line-height:2;font-family:var(--mono)">
+        <div style="display:flex;justify-content:space-between"><span style="color:var(--text-dim)">Resolution</span><span>${cal.image_size ? cal.image_size[0] + "×" + cal.image_size[1] : "—"}</span></div>
+        <div style="display:flex;justify-content:space-between"><span style="color:var(--text-dim)">Focal length</span><span>${fmtNum(cal.fx)} × ${fmtNum(cal.fy)} px</span></div>
+        <div style="display:flex;justify-content:space-between"><span style="color:var(--text-dim)">Principal pt</span><span>(${fmtNum(cal.cx)}, ${fmtNum(cal.cy)})</span></div>
+        <div style="display:flex;justify-content:space-between"><span style="color:var(--text-dim)">Intrinsic RPE</span><span style="color:${(cal.rpe||1) < 0.5 ? 'var(--green)' : 'var(--amber)'}">${fmtNum(cal.rpe, 4)} px</span></div>
+        ${ext ? `
+        <div style="display:flex;justify-content:space-between"><span style="color:var(--text-dim)">Tag distance</span><span>${fmtNum(Math.sqrt(ext.t[0]**2+ext.t[1]**2+ext.t[2]**2)*100, 1)} cm</span></div>
+        <div style="display:flex;justify-content:space-between"><span style="color:var(--text-dim)">Extrinsic RPE</span><span style="color:${ext.rpe < 1 ? 'var(--green)' : 'var(--amber)'}">${fmtNum(ext.rpe, 4)} px</span></div>
+        ` : '<div style="color:var(--text-micro)">Extrinsic: not calibrated</div>'}
+        ${he ? `
+        <div style="height:1px;background:var(--border);margin:6px 0"></div>
+        <div style="display:flex;justify-content:space-between"><span style="color:var(--text-dim)">Hand-Eye</span><span style="color:var(--green)">${he.method} (${he.config})</span></div>
+        <div style="display:flex;justify-content:space-between"><span style="color:var(--text-dim)">HE Residual</span><span>${fmtNum(he.residual, 6)}</span></div>
+        <div style="display:flex;justify-content:space-between"><span style="color:var(--text-dim)">Pose pairs</span><span>${he.num_pairs}</span></div>
+        ` : '<div style="color:var(--text-micro)">Hand-Eye: not calibrated</div>'}
+      </div>
+    </div>
+
+    <a href="/api/export" download="calibration.json" class="btn primary full" style="text-align:center;text-decoration:none;display:block;margin-bottom:14px">⬇ Download calibration.json</a>
+
+    <div class="section-label">JSON Preview</div>
+    <div class="card" style="font-family:var(--mono);font-size:10px;line-height:1.6;max-height:300px;overflow-y:auto;white-space:pre-wrap;color:var(--text-dim);word-break:break-all" id="json-preview">Loading…</div>
+
+    <div class="card" style="margin-top:14px;border-color:rgba(74,124,255,0.15)">
+      <div style="font-size:12px;color:var(--accent-light);line-height:1.6">
+        <strong>Usage in OpenCV (Python):</strong>
+        <pre style="margin-top:8px;font-size:10px;color:var(--text-dim);white-space:pre-wrap">import json, numpy as np
+data = json.load(open("calibration.json"))
+K = np.array(data["intrinsic"]["camera_matrix"])
+dist = np.array(data["intrinsic"]["distortion_coefficients"])${he ? `
+T_he = np.eye(4)
+T_he[:3,:3] = np.array(data["hand_eye"]["rotation_matrix"])
+T_he[:3,3] = data["hand_eye"]["translation_vector"]` : ''}</pre>
+      </div>
+    </div>`;
+
+  // Fetch preview
+  fetch("/api/export").then(r => r.json()).then(d => {
+    const el = document.getElementById("json-preview");
+    if (el) el.textContent = JSON.stringify(d, null, 2);
+  });
+
+  f.innerHTML = `
+    <button class="btn" onclick="goStep(9)">← Adjust</button>
+    <button class="btn" onclick="goStep(0)">Start Over</button>`;
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  TOP-LEVEL TAB SWITCHING
+// ═══════════════════════════════════════════════════════════════
+let activeTab = "calibrate";
+
+window.switchTab = function(tab) {
+  if (tab === activeTab) return;
+
+  // Clean up previous tab
+  if (activeTab === "debug") {
+    if (_debugStreamActive) {
+      stopStream();
+      _debugStreamActive = false;
+      updateCamDot(false);
+    }
+    stopDebugMetricsPoll();
+  }
+
+  activeTab = tab;
+
+  // Update tab button styles
+  document.querySelectorAll(".top-tab").forEach(t => {
+    t.classList.toggle("active", t.dataset.tab === tab);
+  });
+
+  const stepBar = $("#step-bar");
+
+  if (tab === "calibrate") {
+    stepBar.style.display = "flex";
+    goStep(currentStep);
+  } else {
+    // Debug & Tune mode
+    stopStream();
+    stepBar.style.display = "none";
+    $("#stream-img").style.display = "none";
+    $("#placeholder").style.display = "flex";
+    renderDebugPanel();
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  DEBUG & TUNE PANEL
+// ═══════════════════════════════════════════════════════════════
+let debugTagSize = 50; // mm
+let debugLiveMetrics = null;
+
+function renderDebugPanel() {
+  const content = $("#sidebar-content");
+  const footer = $("#sidebar-footer");
+
+  // Check if we have loaded calibration data
+  const hasCal = !!calibrationResult;
+  const hasHE = !!handeyeResult;
+
+  content.innerHTML = `
+    <div class="section-label" style="font-size:14px;margin-bottom:4px">Debug &amp; Tune</div>
+    <div class="hint" style="margin-bottom:18px">Load a previous calibration and fine-tune parameters with a live camera feed. The overlay shows the undistorted image, AprilTag detection, and projected coordinate frames.</div>
+
+    <!-- IMPORT SECTION -->
+    <div class="debug-section">
+      <div class="section-label">Import Calibration</div>
+      <div class="hint">Paste your <code style="color:var(--accent-light)">calibration.json</code> contents below, or upload a file.</div>
+      <textarea class="debug-import-area" id="debug-json-input" placeholder='{"intrinsic":{...}, "hand_eye":{...}}'>${hasCal ? '(parameters already loaded)' : ''}</textarea>
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <label class="btn sm" style="flex:1;text-align:center;cursor:pointer">
+          📂 Upload File
+          <input type="file" accept=".json" style="display:none" onchange="debugLoadFile(event)" />
+        </label>
+        <button class="btn primary sm" style="flex:1" onclick="debugLoadJSON()">Load JSON</button>
+      </div>
+      <div id="debug-load-status" style="font-size:11px;margin-top:6px;min-height:16px;color:var(--text-dim)">
+        ${hasCal ? '<span style="color:var(--green)">✓ Intrinsics loaded</span>' : ''}
+        ${hasHE ? ' <span style="color:var(--green)">✓ Hand-eye loaded</span>' : ''}
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- TAG SIZE -->
+    <div class="debug-section">
+      <div class="section-label">AprilTag Size</div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input id="debug-tag-size" type="number" value="${debugTagSize}" min="5" max="500" step="0.1"
+          style="flex:1;padding:7px 10px;border-radius:6px;border:1px solid var(--border2);background:var(--panel2);color:var(--text);font-family:var(--mono);font-size:12px"
+          onchange="debugTagSize=parseFloat(this.value);post('/api/handeye/config',{tag_size:debugTagSize/1000})" />
+        <span style="font-size:11px;color:var(--text-dim);font-family:var(--mono)">mm</span>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- LIVE METRICS -->
+    <div class="debug-section">
+      <div class="section-label">Live Metrics</div>
+      <div class="card" id="debug-metrics" style="font-size:11px;min-height:60px">
+        <div class="debug-metric"><span class="label">Tag detected</span><span class="value" id="dm-tag">—</span></div>
+        <div class="debug-metric"><span class="label">Tag RPE</span><span class="value" id="dm-rpe">—</span></div>
+        <div class="debug-metric"><span class="label">Tag distance</span><span class="value" id="dm-dist">—</span></div>
+        <div class="debug-metric"><span class="label">HE loaded</span><span class="value" id="dm-he">${hasHE ? '✓' : '—'}</span></div>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- INTRINSIC SLIDERS -->
+    <div class="debug-section" id="debug-intrinsics-section" style="${hasCal ? '' : 'opacity:0.4;pointer-events:none'}">
+      <div class="section-label">Intrinsics</div>
+      ${debugMakeSliders("intrinsic")}
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- ROBOT-TO-CAMERA TRANSFORM SLIDERS -->
+    <div class="debug-section" id="debug-he-section" style="${hasHE ? '' : 'opacity:0.4;pointer-events:none'}">
+      <div class="section-label">Robot → Camera Transform</div>
+      ${debugMakeSliders("handeye")}
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- START STREAM BUTTON -->
+    <div class="debug-section">
+      <button class="btn primary full" id="debug-stream-btn" onclick="debugToggleStream()" ${hasCal ? '' : 'disabled'}>
+        ▶ Start Live Feed
+      </button>
+    </div>
+  `;
+
+  footer.innerHTML = `
+    <a href="/api/export" download="calibration.json" class="btn primary" style="flex:1;text-align:center;text-decoration:none">⬇ Export</a>
+    <button class="btn" onclick="switchTab('calibrate')">← Wizard</button>
+  `;
+
+  // Start live metric updater
+  startDebugMetricsPoll();
+}
+
+function debugMakeSliders(group) {
+  function sl(id, label, value, min, max, step, unit = "") {
+    const pct = Math.max(0, Math.min(100, ((value - min) / (max - min)) * 100));
+    const dec = step < 0.001 ? 6 : step < 0.1 ? 4 : step < 1 ? 2 : 1;
+    return `<div class="slider-group" id="sg-dbg-${id}">
+      <div class="slider-header">
+        <span class="lbl">${label}</span>
+        <input class="val" id="sv-dbg-${id}" type="text" value="${fmtNum(value, dec)}${unit}"
+          onchange="sliderValFromInput('dbg-${id}', this, ${min}, ${max}, ${step}, v => onDebugSlider('${group}','${id}',v,${min},${max},${step}))"
+          onkeydown="if(event.key==='Enter'){this.blur()}" />
+      </div>
+      <div class="slider-track">
+        <div class="bg"></div>
+        <div class="fill" id="sf-dbg-${id}" style="width:${pct}%"></div>
+        <input type="range" min="${min}" max="${max}" step="${step}" value="${value}"
+          oninput="onDebugSlider('${group}','${id}',this.value,${min},${max},${step})" />
+        <div class="thumb" id="st-dbg-${id}" style="left:calc(${pct}% - 6px)"></div>
+      </div>
+    </div>`;
+  }
+
+  if (group === "intrinsic") {
+    const cal = calibrationResult || {};
+    return [
+      sl("fx", "fx", cal.fx || 800, 100, 3000, 1, " px"),
+      sl("fy", "fy", cal.fy || 800, 100, 3000, 1, " px"),
+      sl("cx", "cx", cal.cx || 640, 0, 1920, 1, " px"),
+      sl("cy", "cy", cal.cy || 360, 0, 1080, 1, " px"),
+      '<div style="height:8px"></div>',
+      sl("k1", "k1", cal.k1 || 0, -2, 2, 0.0001),
+      sl("k2", "k2", cal.k2 || 0, -1, 1, 0.0001),
+      sl("p1", "p1", cal.p1 || 0, -0.1, 0.1, 0.00001),
+      sl("p2", "p2", cal.p2 || 0, -0.1, 0.1, 0.00001),
+    ].join("");
+  }
+
+  // handeye
+  const he = handeyeResult || {};
+  const rv = he.rvec || [0, 0, 0];
+  const t = he.t || [0, 0, 0];
+  return [
+    '<div style="font-size:10px;color:var(--text-micro);margin-bottom:6px">Rotation (Rodrigues)</div>',
+    sl("hrv0", "rvec[0]", rv[0], -3.15, 3.15, 0.001, " rad"),
+    sl("hrv1", "rvec[1]", rv[1], -3.15, 3.15, 0.001, " rad"),
+    sl("hrv2", "rvec[2]", rv[2], -3.15, 3.15, 0.001, " rad"),
+    '<div style="height:8px"></div>',
+    '<div style="font-size:10px;color:var(--text-micro);margin-bottom:6px">Translation</div>',
+    sl("htx", "tx", t[0], -2, 2, 0.0005, " m"),
+    sl("hty", "ty", t[1], -2, 2, 0.0005, " m"),
+    sl("htz", "tz", t[2], -2, 2, 0.0005, " m"),
+  ].join("");
+}
+
+let _debugSliderTimeout = null;
+window.onDebugSlider = function(group, id, rawVal, min, max, step) {
+  const val = parseFloat(rawVal);
+  const pct = ((val - min) / (max - min)) * 100;
+  const sv = document.getElementById("sv-dbg-" + id);
+  const sf = document.getElementById("sf-dbg-" + id);
+  const st = document.getElementById("st-dbg-" + id);
+  const dec = step < 0.001 ? 6 : step < 0.1 ? 4 : step < 1 ? 2 : 1;
+  const unit = id.startsWith("h") && id.includes("rv") ? " rad"
+             : id.startsWith("ht") ? " m"
+             : id === "fx" || id === "fy" || id === "cx" || id === "cy" ? " px" : "";
+  if (sv) sv.value = fmtNum(val, dec) + unit;
+  if (sf) sf.style.width = pct + "%";
+  if (st) st.style.left = `calc(${pct}% - 6px)`;
+
+  clearTimeout(_debugSliderTimeout);
+  _debugSliderTimeout = setTimeout(() => {
+    if (group === "intrinsic") {
+      const params = {};
+      ["fx","fy","cx","cy","k1","k2","p1","p2"].forEach(k => {
+        const el = document.querySelector(`#sg-dbg-${k} input[type=range]`);
+        if (el) params[k] = parseFloat(el.value);
+      });
+      post("/api/adjust/intrinsic", params).then(r => {
+        if (r.ok && r.result) calibrationResult = r.result;
+      });
+    } else {
+      const rvec = [0,1,2].map(i => {
+        const el = document.querySelector(`#sg-dbg-hrv${i} input[type=range]`);
+        return el ? parseFloat(el.value) : 0;
+      });
+      const t = ["htx","hty","htz"].map(k => {
+        const el = document.querySelector(`#sg-dbg-${k} input[type=range]`);
+        return el ? parseFloat(el.value) : 0;
+      });
+      post("/api/adjust/handeye", { rvec, t }).then(r => {
+        if (r.ok && r.result) handeyeResult = r.result;
+      });
+    }
+  }, 80);
+}
+
+let _debugStreamActive = false;
+window.debugToggleStream = function() {
+  const btn = document.getElementById("debug-stream-btn");
+  if (_debugStreamActive) {
+    stopStream();
+    _debugStreamActive = false;
+    if (btn) { btn.textContent = "▶ Start Live Feed"; btn.classList.remove("danger"); btn.classList.add("primary"); }
+    updateCamDot(false);
+  } else {
+    startStream("debug");
+    _debugStreamActive = true;
+    if (btn) { btn.textContent = "■ Stop Feed"; btn.classList.remove("primary"); btn.classList.add("danger"); }
+    updateCamDot(true);
+  }
+}
+
+window.debugLoadJSON = async function() {
+  const ta = document.getElementById("debug-json-input");
+  const status = document.getElementById("debug-load-status");
+  if (!ta || !ta.value.trim()) {
+    if (status) { status.innerHTML = '<span style="color:var(--red)">Paste JSON first</span>'; }
+    return;
+  }
+  let data;
+  try {
+    data = JSON.parse(ta.value.trim());
+  } catch (e) {
+    if (status) { status.innerHTML = `<span style="color:var(--red)">Invalid JSON: ${e.message}</span>`; }
+    return;
+  }
+  await debugApplyJSON(data, status);
+}
+
+window.debugLoadFile = function(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = async (e) => {
+    const status = document.getElementById("debug-load-status");
+    let data;
+    try {
+      data = JSON.parse(e.target.result);
+    } catch (err) {
+      if (status) status.innerHTML = `<span style="color:var(--red)">Invalid JSON file</span>`;
+      return;
+    }
+    // Also populate the textarea for visibility
+    const ta = document.getElementById("debug-json-input");
+    if (ta) ta.value = JSON.stringify(data, null, 2);
+    await debugApplyJSON(data, status);
+  };
+  reader.readAsText(file);
+}
+
+async function debugApplyJSON(data, statusEl) {
+  const r = await post("/api/load", data);
+  if (!r.ok) {
+    if (statusEl) statusEl.innerHTML = `<span style="color:var(--red)">❌ ${r.error || 'Load failed'}</span>`;
+    return;
+  }
+
+  const parts = [];
+  if (r.loaded.intrinsic) parts.push("Intrinsics");
+  if (r.loaded.extrinsic) parts.push("Extrinsic");
+  if (r.loaded.hand_eye) parts.push("Hand-Eye");
+
+  if (statusEl) statusEl.innerHTML = `<span style="color:var(--green)">✓ Loaded: ${parts.join(", ")}</span>`;
+  toast(`Loaded: ${parts.join(", ")}`);
+
+  // Sync local state — fetch from export to get the canonical form
+  const exportData = await api("/api/export");
+
+  if (r.loaded.intrinsic && exportData.intrinsic) {
+    const p = exportData.intrinsic.parameters;
+    calibrationResult = {
+      ...p,
+      rpe: exportData.intrinsic.reprojection_error || 0,
+      image_size: exportData.intrinsic.image_size,
+      K: exportData.intrinsic.camera_matrix,
+      dist: exportData.intrinsic.distortion_coefficients,
+      per_view_errors: [],
+      num_frames: 0,
+    };
+  }
+
+  if (r.loaded.hand_eye && exportData.hand_eye) {
+    const h = exportData.hand_eye;
+    handeyeResult = {
+      R: h.rotation_matrix,
+      t: h.translation_vector,
+      rvec: h.rodrigues_vector,
+      method: h.method || "imported",
+      config: h.configuration || "imported",
+      residual: h.residual || 0,
+      num_pairs: h.num_pose_pairs || 0,
+      all_methods: h.all_methods || {},
+    };
+  }
+
+  if (r.loaded.extrinsic && exportData.extrinsic) {
+    const e = exportData.extrinsic;
+    extrinsicResult = {
+      R: e.rotation_matrix,
+      t: e.translation_vector,
+      rvec: e.rodrigues_vector,
+      tag_id: e.tag_id,
+      tag_size: e.tag_size_meters,
+      rpe: e.reprojection_error,
+    };
+  }
+
+  // Re-render the panel to enable sections
+  renderDebugPanel();
+}
+
+let _debugMetricsPoll = null;
+function startDebugMetricsPoll() {
+  stopDebugMetricsPoll();
+  _debugMetricsPoll = setInterval(async () => {
+    if (activeTab !== "debug" || !_debugStreamActive) return;
+    const s = await api("/api/status");
+    const tagEl = document.getElementById("dm-tag");
+    const rpeEl = document.getElementById("dm-rpe");
+    const distEl = document.getElementById("dm-dist");
+    const heEl = document.getElementById("dm-he");
+    if (tagEl) {
+      tagEl.textContent = s.apriltag_detected ? "✓ Yes" : "No";
+      tagEl.style.color = s.apriltag_detected ? "var(--green)" : "var(--red)";
+    }
+    // RPE and distance come from the OSD on the feed (backend computes them).
+    // We show what we can from the status endpoint.
+    if (heEl) {
+      heEl.textContent = s.has_handeye ? "✓ Active" : "—";
+      heEl.style.color = s.has_handeye ? "var(--green)" : "var(--text-dim)";
+    }
+  }, 400);
+}
+function stopDebugMetricsPoll() {
+  if (_debugMetricsPoll) { clearInterval(_debugMetricsPoll); _debugMetricsPoll = null; }
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  INIT
+// ═══════════════════════════════════════════════════════════════
+goStep(0);
+</script>
+</body>
+</html>

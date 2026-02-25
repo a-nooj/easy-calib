@@ -1,0 +1,49 @@
+{
+  "intrinsic": {
+    "camera_matrix": [
+      [615.0, 0.0, 640.0],
+      [0.0, 615.0, 360.0],
+      [0.0, 0.0, 1.0]
+    ],
+    "distortion_coefficients": [
+      [-0.05, 0.02, 0.0005, -0.0003, 0.0]
+    ],
+    "image_size": [1280, 720],
+    "reprojection_error": 0.35,
+    "parameters": {
+      "fx": 615.0,
+      "fy": 615.0,
+      "cx": 640.0,
+      "cy": 360.0,
+      "k1": -0.05,
+      "k2": 0.02,
+      "p1": 0.0005,
+      "p2": -0.0003
+    }
+  },
+  "hand_eye": {
+    "rotation_matrix": [
+      [1.0, 0.0, 0.0],
+      [0.0, 1.0, 0.0],
+      [0.0, 0.0, 1.0]
+    ],
+    "translation_vector": [0.0, 0.0, 0.5],
+    "rodrigues_vector": [0.0, 0.0, 0.0],
+    "method": "SVD_PROCRUSTES",
+    "configuration": "touch-point",
+    "residual": 0.0,
+    "num_pose_pairs": 0,
+    "all_methods": {
+      "SVD_PROCRUSTES": {
+        "R": [
+          [1.0, 0.0, 0.0],
+          [0.0, 1.0, 0.0],
+          [0.0, 0.0, 1.0]
+        ],
+        "t": [0.0, 0.0, 0.5],
+        "rvec": [0.0, 0.0, 0.0],
+        "residual": 0.0
+      }
+    }
+  }
+}
