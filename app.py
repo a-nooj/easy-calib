@@ -60,10 +60,8 @@ state = {
     "captures": [],              # list of (charuco_corners, charuco_ids, img_size)
     "calibration": None,         # dict with fx,fy,cx,cy,k1..k5,p1,p2,rpe
     "extrinsic": None,           # dict with R, t, rvec
-    "handeye_pairs": [],         # list of {cam_rvec, cam_tvec, ee_R, ee_t}
     "touchpoint_pairs": [],      # list of {cam_pt, robot_pt, thumbnail}
     "handeye": None,             # result: {R, t, method, config}
-    "handeye_config": "eye-in-hand",  # "eye-in-hand" | "eye-to-hand" | "touch-point"
     "handeye_tag_size": APRILTAG_SIZE,
     "last_detection": {          # updated every frame
         "charuco_count": 0,
@@ -188,7 +186,6 @@ def generate_frames():
             with lock:
                 he = state["handeye"]
                 tag_sz = state["handeye_tag_size"]
-                he_config = state["handeye_config"]
                 state["last_detection"]["apriltag_detected"] = detected
 
             if detected:
@@ -223,16 +220,7 @@ def generate_frames():
                         T_he[:3, :3] = np.array(he["R"])
                         T_he[:3, 3] = np.array(he["t"])
 
-                        # Draw the robot/EE frame projected through hand-eye
-                        if he_config == "eye-in-hand":
-                            # X_cam = T_he @ X_ee  →  T_cam_ee = T_he
-                            # Robot base frame via: T_cam_base = T_cam_tag @ inv(T_tag_base)
-                            # But for overlay, show EE frame = cam origin transformed
-                            # and show a second set of axes representing the HE offset
-                            T_overlay = T_cam_tag @ T_he
-                        else:
-                            # eye-to-hand: camera is fixed, robot moves
-                            T_overlay = T_cam_tag @ T_he
+                        T_overlay = T_cam_tag @ T_he
 
                         rvec_ov, _ = cv2.Rodrigues(T_overlay[:3, :3])
                         tvec_ov = T_overlay[:3, 3].reshape(3, 1)
@@ -252,8 +240,8 @@ def generate_frames():
                                     (pt2[0] + 8, pt2[1] - 8),
                                     cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 200, 60), 1)
 
-                    n_pairs = len(state.get("handeye_pairs", []))
-                    cv2.putText(display, f"Pairs: {n_pairs}",
+                    n_pairs = len(state.get("touchpoint_pairs", []))
+                    cv2.putText(display, f"Points: {n_pairs}",
                                 (20, display.shape[0] - 20),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, (160, 160, 180), 1)
             else:
@@ -452,7 +440,6 @@ def get_status():
         det["has_calibration"] = state["calibration"] is not None
         det["has_extrinsic"] = state["extrinsic"] is not None
         det["has_handeye"] = state["handeye"] is not None
-        det["num_handeye_pairs"] = len(state["handeye_pairs"])
         det["num_touchpoint_pairs"] = len(state["touchpoint_pairs"])
         det["mode"] = state["mode"]
     return jsonify(det)
@@ -690,90 +677,18 @@ def adjust_extrinsic():
 # ═══════════════════════════════════════════════════════════════════
 @app.route("/api/handeye/config", methods=["POST"])
 def set_handeye_config():
-    """Set hand-eye configuration (eye-in-hand or eye-to-hand)."""
+    """Set hand-eye tag size."""
     data = request.json or {}
-    config = data.get("config", "eye-in-hand")
     tag_size = data.get("tag_size", APRILTAG_SIZE)
     with lock:
-        state["handeye_config"] = config
         state["handeye_tag_size"] = tag_size
-    return jsonify(ok=True, config=config, tag_size=tag_size)
+    return jsonify(ok=True, tag_size=tag_size)
 
-
-@app.route("/api/handeye/pair", methods=["POST"])
-def add_handeye_pair():
-    """Capture current tag pose and record user-provided EE pose as a pair."""
-    with lock:
-        cal = state["calibration"]
-        tag_sz = state["handeye_tag_size"]
-    if cal is None:
-        return jsonify(ok=False, error="Run intrinsic calibration first"), 400
-
-    data = request.json or {}
-    ee_pose = data.get("ee_pose")  # [x,y,z, rx,ry,rz] in meters+radians
-    if ee_pose is None or len(ee_pose) != 6:
-        return jsonify(ok=False,
-                       error="Provide ee_pose as [x, y, z, rx, ry, rz] (meters, radians)"), 400
-
-    cam = open_camera()
-    ret, frame = cam.read()
-    if not ret:
-        return jsonify(ok=False, error="Camera read failed"), 500
-
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    corners, ids, _ = april_detector.detectMarkers(gray)
-    if ids is None or len(ids) == 0:
-        return jsonify(ok=False, error="No AprilTag detected — keep tag visible"), 400
-
-    img_pts = corners[0][0].astype(np.float64)
-    half = tag_sz / 2.0
-    obj_pts = np.array([
-        [-half,  half, 0], [ half,  half, 0],
-        [ half, -half, 0], [-half, -half, 0],
-    ], dtype=np.float64)
-
-    K = np.array(cal["K"], dtype=np.float64)
-    dist = np.array(cal["dist"], dtype=np.float64)
-
-    success, rvec, tvec = cv2.solvePnP(obj_pts, img_pts, K, dist,
-                                         flags=cv2.SOLVEPNP_IPPE_SQUARE)
-    if not success:
-        return jsonify(ok=False, error="solvePnP failed on tag"), 500
-
-    # Parse EE pose → rotation matrix + translation
-    x, y, z, rx, ry, rz = [float(v) for v in ee_pose]
-    ee_rvec = np.array([rx, ry, rz], dtype=np.float64)
-    ee_R, _ = cv2.Rodrigues(ee_rvec)
-    ee_t = np.array([x, y, z], dtype=np.float64)
-
-    # Generate thumbnail
-    thumb = frame.copy()
-    cv2.aruco.drawDetectedMarkers(thumb, corners, ids)
-    cv2.drawFrameAxes(thumb, K, dist, rvec, tvec, tag_sz * 0.5)
-    thumb = cv2.resize(thumb, (320, 180))
-    _, tbuf = cv2.imencode('.jpg', thumb, [cv2.IMWRITE_JPEG_QUALITY, 75])
-    thumb_b64 = base64.b64encode(tbuf.tobytes()).decode()
-
-    pair = {
-        "cam_rvec": rvec.flatten().tolist(),
-        "cam_tvec": tvec.flatten().tolist(),
-        "ee_R": ee_R.tolist(),
-        "ee_t": ee_t.tolist(),
-        "ee_pose_input": ee_pose,
-        "thumbnail": thumb_b64,
-    }
-
-    with lock:
-        state["handeye_pairs"].append(pair)
-        n = len(state["handeye_pairs"])
-
-    return jsonify(ok=True, num_pairs=n, thumbnail=thumb_b64)
 
 
 @app.route("/api/handeye/clear", methods=["POST"])
 def clear_handeye():
     with lock:
-        state["handeye_pairs"] = []
         state["touchpoint_pairs"] = []
         state["handeye"] = None
     return jsonify(ok=True)
@@ -938,119 +853,6 @@ def calibrate_touchpoint():
 
     return jsonify(ok=True, result=result)
 
-
-@app.route("/api/calibrate/handeye", methods=["POST"])
-def calibrate_handeye():
-    """Run cv2.calibrateHandEye on collected pairs."""
-    with lock:
-        pairs = state["handeye_pairs"][:]
-        config = state["handeye_config"]
-
-    if len(pairs) < 3:
-        return jsonify(ok=False,
-                       error=f"Need at least 3 pose pairs (have {len(pairs)})"), 400
-
-    # Build input arrays
-    R_gripper2base_list = []  # or R_base2gripper for eye-to-hand
-    t_gripper2base_list = []
-    R_target2cam_list = []
-    t_target2cam_list = []
-
-    for p in pairs:
-        R_cam, _ = cv2.Rodrigues(np.array(p["cam_rvec"], dtype=np.float64))
-        t_cam = np.array(p["cam_tvec"], dtype=np.float64).reshape(3, 1)
-
-        R_ee = np.array(p["ee_R"], dtype=np.float64)
-        t_ee = np.array(p["ee_t"], dtype=np.float64).reshape(3, 1)
-
-        R_target2cam_list.append(R_cam)
-        t_target2cam_list.append(t_cam)
-        R_gripper2base_list.append(R_ee)
-        t_gripper2base_list.append(t_ee)
-
-    # Try multiple methods and pick the one with lowest residual
-    methods = {
-        "TSAI": cv2.CALIB_HAND_EYE_TSAI,
-        "PARK": cv2.CALIB_HAND_EYE_PARK,
-        "HORAUD": cv2.CALIB_HAND_EYE_HORAUD,
-        "ANDREFF": cv2.CALIB_HAND_EYE_ANDREFF,
-        "DANIILIDIS": cv2.CALIB_HAND_EYE_DANIILIDIS,
-    }
-
-    best_result = None
-    best_residual = float("inf")
-    all_results = {}
-
-    for name, method in methods.items():
-        try:
-            if config == "eye-in-hand":
-                R_he, t_he = cv2.calibrateHandEye(
-                    R_gripper2base_list, t_gripper2base_list,
-                    R_target2cam_list, t_target2cam_list,
-                    method=method
-                )
-            else:
-                # eye-to-hand: swap roles
-                R_he, t_he = cv2.calibrateHandEye(
-                    [R.T for R in R_gripper2base_list],
-                    [-R.T @ t for R, t in zip(R_gripper2base_list, t_gripper2base_list)],
-                    R_target2cam_list, t_target2cam_list,
-                    method=method
-                )
-
-            # Compute a simple consistency residual
-            residual = 0.0
-            for i in range(len(pairs)):
-                T_ee = np.eye(4)
-                T_ee[:3, :3] = R_gripper2base_list[i]
-                T_ee[:3, 3] = t_gripper2base_list[i].flatten()
-
-                T_cam = np.eye(4)
-                T_cam[:3, :3] = R_target2cam_list[i]
-                T_cam[:3, 3] = t_target2cam_list[i].flatten()
-
-                T_he = np.eye(4)
-                T_he[:3, :3] = R_he
-                T_he[:3, 3] = t_he.flatten()
-
-                # AX = XB consistency: T_ee_i @ T_he should be consistent
-                composed = T_ee @ T_he @ T_cam
-                # Ideally all composed transforms are the same
-                if i == 0:
-                    T_ref = composed.copy()
-                else:
-                    diff = np.linalg.norm(composed - T_ref, 'fro')
-                    residual += diff
-
-            rvec_he, _ = cv2.Rodrigues(R_he)
-            all_results[name] = {
-                "R": R_he.tolist(),
-                "t": t_he.flatten().tolist(),
-                "rvec": rvec_he.flatten().tolist(),
-                "residual": round(float(residual), 6),
-            }
-            if residual < best_residual:
-                best_residual = residual
-                best_result = {
-                    "R": R_he.tolist(),
-                    "t": t_he.flatten().tolist(),
-                    "rvec": rvec_he.flatten().tolist(),
-                    "method": name,
-                    "residual": round(float(residual), 6),
-                    "config": config,
-                    "num_pairs": len(pairs),
-                    "all_methods": all_results,
-                }
-        except Exception as e:
-            all_results[name] = {"error": str(e)}
-
-    if best_result is None:
-        return jsonify(ok=False, error="All hand-eye methods failed"), 500
-
-    with lock:
-        state["handeye"] = best_result
-
-    return jsonify(ok=True, result=best_result)
 
 
 @app.route("/api/adjust/handeye", methods=["POST"])

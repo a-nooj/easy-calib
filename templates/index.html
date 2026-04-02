@@ -357,8 +357,8 @@ function renderWelcome(c, f) {
       <div style="display:flex;gap:12px;align-items:flex-start">
         <span class="badge blue" style="flex-shrink:0">Step 3</span>
         <div>
-          <div style="font-size:13px;color:var(--text);margin-bottom:4px;font-weight:500">Hand-Eye Calibration <span style="font-size:10px;color:var(--text-micro);font-weight:400">(optional)</span></div>
-          <div style="font-size:12px;color:var(--text-dim);line-height:1.6">If your camera is mounted on (or observing) a robot, we'll compute the camera ↔ robot transform. Three modes: <em>eye-in-hand</em> (AX=XB), <em>eye-to-hand</em> (AX=XB), or <em>touch-point registration</em> (SVD Procrustes — no rotation input needed, just touch the tag with the TCP).</div>
+          <div style="font-size:13px;color:var(--text);margin-bottom:4px;font-weight:500">Touch-Point Calibration <span style="font-size:10px;color:var(--text-micro);font-weight:400">(optional)</span></div>
+          <div style="font-size:12px;color:var(--text-dim);line-height:1.6">If your camera observes a robot workspace, we'll compute the camera ↔ robot transform via <em>touch-point registration</em> (SVD Procrustes). Physically touch the AprilTag center with the robot TCP — no rotation input needed.</div>
         </div>
       </div>
     </div>
@@ -719,114 +719,37 @@ function renderExtrinsic(c, f) {
     <button class="btn" onclick="goStep(9)">Skip →</button>`;
 }
 
-// ───────── HAND-EYE CAPTURE ─────────
-let heConfigMode = "eye-in-hand";
-
-function heInstructions(cfg) {
-  if (cfg === "eye-in-hand") return {
-    diagram: `<div style="font-family:var(--mono);font-size:10px;color:var(--text-dim);line-height:1.8;padding:8px 12px;background:rgba(74,124,255,0.04);border-radius:6px;margin-bottom:12px">
-      <span style="color:var(--green)">Robot Base</span> → <span style="color:var(--amber)">EE + Camera</span> → observes → <span style="color:var(--accent-light)">AprilTag (fixed in world)</span>
-    </div>`,
-    setup: `The camera is <strong>mounted on the robot's end-effector</strong> and moves with it. The AprilTag is placed at a <strong>fixed location</strong> in the workspace — it does not move.`,
-    steps: `1. Place the AprilTag on a stable surface — <strong>do not move it</strong><br>
-        2. Move the <em>robot</em> to a new pose (camera moves with the EE)<br>
-        3. Read the EE pose from your robot controller<br>
-        4. Enter it below and click <em>Add Pair</em><br>
-        5. Repeat ≥ 3 times (5–8 recommended) from diverse poses`,
-    tips: `• The AprilTag must remain <strong>completely stationary</strong> throughout all captures<br>
-        • Move the robot to significantly different orientations between captures<br>
-        • Include tilts of 15–45° around different axes<br>
-        • Keep the tag visible and well-lit throughout<br>
-        • Double-check each EE pose value before adding`,
-    solves: `Solves for <strong>T<sub>cam←ee</sub></strong> — the rigid transform from the end-effector frame to the camera frame.`,
-    inputLabel: `End-Effector Pose (meters &amp; radians)`,
-    inputHint: `Enter the current EE pose from your robot controller. <em>Position</em> in meters, <em>rotation</em> as Rodrigues angles (axis-angle) in radians.`,
-    needsRotation: true,
-  };
-  if (cfg === "eye-to-hand") return {
-    diagram: `<div style="font-family:var(--mono);font-size:10px;color:var(--text-dim);line-height:1.8;padding:8px 12px;background:rgba(74,124,255,0.04);border-radius:6px;margin-bottom:12px">
-      <span style="color:var(--green)">Fixed Camera</span> → observes → <span style="color:var(--amber)">AprilTag on EE</span> ← attached to ← <span style="color:var(--accent-light)">Robot</span>
-    </div>`,
-    setup: `The camera is <strong>fixed in the workspace</strong> (e.g. mounted on a tripod or wall). The AprilTag is <strong>rigidly attached to the robot's end-effector</strong> and moves with it.`,
-    steps: `1. Attach the AprilTag rigidly to the robot's end-effector — it must <strong>move with the EE</strong><br>
-        2. Move the <em>robot</em> to a new pose (tag moves with EE)<br>
-        3. Ensure the camera can still see the tag<br>
-        4. Read the EE pose from your robot controller<br>
-        5. Enter it below and click <em>Add Pair</em><br>
-        6. Repeat ≥ 3 times (5–8 recommended) from diverse poses`,
-    tips: `• The camera must remain <strong>completely stationary</strong> — do not bump or adjust it<br>
-        • The AprilTag must be <strong>rigidly fixed to the EE</strong> — no tape that could shift<br>
-        • Move the robot to significantly different orientations between captures<br>
-        • Include tilts of 15–45° around different axes<br>
-        • Make sure the tag is always fully visible to the camera`,
-    solves: `Solves for <strong>T<sub>cam←base</sub></strong> — the rigid transform from the robot base frame to the camera frame.`,
-    inputLabel: `End-Effector Pose (meters &amp; radians)`,
-    inputHint: `Enter the current EE pose from your robot controller. <em>Position</em> in meters, <em>rotation</em> as Rodrigues angles (axis-angle) in radians.`,
-    needsRotation: true,
-  };
-  // touch-point
-  return {
-    diagram: `<div style="font-family:var(--mono);font-size:10px;color:var(--text-dim);line-height:1.8;padding:8px 12px;background:rgba(74,124,255,0.04);border-radius:6px;margin-bottom:12px">
-      <span style="color:var(--green)">Fixed Camera</span> → observes → <span style="color:var(--accent-light)">AprilTag (fixed)</span> ← touched by ← <span style="color:var(--amber)">Robot TCP</span>
-    </div>`,
-    setup: `The camera is <strong>fixed</strong> and observes the workspace. The robot physically <strong>touches the center of the AprilTag</strong> with its calibrated tool center point (TCP). This gives direct 3D point correspondences between camera and robot frames — <em>no rotation needed</em>.`,
-    steps: `1. Place the AprilTag flat on a surface the robot can reach<br>
-        2. Jog the robot so the <strong>TCP touches the tag center</strong><br>
-        3. Read the <strong>TCP position</strong> (x, y, z only) from the controller<br>
-        4. Enter it below and click <em>Add Point</em><br>
-        5. Move the tag to a <strong>new location</strong> and repeat<br>
-        6. Collect ≥ 3 points — use <strong>different heights</strong> (non-coplanar) for best results`,
-    tips: `• Your robot's <strong>TCP must be calibrated</strong> — the accuracy of this method depends entirely on TCP accuracy<br>
-        • You only need position (x, y, z) — no rotation input required<br>
-        • Spread points across the workspace — <strong>avoid a straight line</strong><br>
-        • Use <strong>different Z heights</strong> (e.g. tag on table, tag on a box) to avoid coplanar degeneracy<br>
-        • 4–6 well-spread points is usually sufficient<br>
-        • The tag can move between captures — just touch its center each time`,
-    solves: `Solves for <strong>T<sub>cam←base</sub></strong> via SVD point registration (Procrustes). Finds the rigid transform mapping robot base points to camera-frame points.`,
-    inputLabel: `TCP Position (meters)`,
-    inputHint: `Enter the robot's <strong>tool center point position</strong> from your controller. Only translation — no rotation needed.`,
-    needsRotation: false,
-  };
-}
-
+// ───────── HAND-EYE CAPTURE (touch-point only) ─────────
 function renderHECapture(c, f) {
   startStream("handeye");
   updateCamDot(true);
   const tagMM = document.getElementById('tag-size')?.value || document.getElementById('ext-tag-size')?.value || 50;
-  post("/api/handeye/config", { config: heConfigMode, tag_size: parseFloat(tagMM) / 1000 });
-
-  const info = heInstructions(heConfigMode);
+  post("/api/handeye/config", { tag_size: parseFloat(tagMM) / 1000 });
 
   c.innerHTML = `
-    <div class="section-label">Hand-Eye Calibration</div>
-    <div class="hint">This step computes the rigid transform between your <strong>camera</strong> and a <strong>robot</strong>. You'll capture multiple pose pairs: for each, you enter the robot's EE pose while the camera sees the AprilTag.</div>
+    <div class="section-label">Touch-Point Calibration</div>
+    <div class="hint">The camera is <strong>fixed</strong> and observes the workspace. The robot physically <strong>touches the center of the AprilTag</strong> with its calibrated TCP. This gives direct 3D point correspondences — <em>no rotation needed</em>.</div>
 
-    <div class="section-label">Configuration</div>
-    <div style="margin-bottom:12px">
-      <label style="font-size:10px;font-family:var(--mono);color:var(--text-dim);display:block;margin-bottom:4px">Setup type</label>
-      <select id="he-config" onchange="updateHEConfig()"
-        style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid var(--border2);background:var(--panel2);color:var(--text);font-family:var(--mono);font-size:12px">
-        <option value="eye-in-hand" ${heConfigMode==="eye-in-hand"?"selected":""}>Eye-in-Hand (camera mounted on robot EE)</option>
-        <option value="eye-to-hand" ${heConfigMode==="eye-to-hand"?"selected":""}>Eye-to-Hand (fixed camera, tag on robot EE)</option>
-        <option value="touch-point" ${heConfigMode==="touch-point"?"selected":""}>Touch-Point (fixed camera, robot touches tag center)</option>
-      </select>
+    <div style="font-family:var(--mono);font-size:10px;color:var(--text-dim);line-height:1.8;padding:8px 12px;background:rgba(74,124,255,0.04);border-radius:6px;margin-bottom:12px">
+      <span style="color:var(--green)">Fixed Camera</span> → observes → <span style="color:var(--accent-light)">AprilTag (fixed)</span> ← touched by ← <span style="color:var(--amber)">Robot TCP</span>
     </div>
 
-    <div id="he-info-block">
-      ${info.diagram}
-      <div class="hint">${info.setup}</div>
-      <div class="card" style="border-color:rgba(74,124,255,0.15)">
-        <div style="font-size:12px;color:var(--accent-light);line-height:1.7">
-          <strong>Procedure:</strong><br>
-          ${info.steps}
-        </div>
+    <div class="card" style="border-color:rgba(74,124,255,0.15)">
+      <div style="font-size:12px;color:var(--accent-light);line-height:1.7">
+        <strong>Procedure:</strong><br>
+        1. Place the AprilTag flat on a surface the robot can reach<br>
+        2. Jog the robot so the <strong>TCP touches the tag center</strong><br>
+        3. Read the <strong>TCP position</strong> (x, y, z only) from the controller<br>
+        4. Enter it below and click <em>Add Point</em><br>
+        5. Move the tag to a <strong>new location</strong> and repeat<br>
+        6. Collect ≥ 3 points — use <strong>different heights</strong> (non-coplanar) for best results
       </div>
-      <div class="hint" style="margin-top:10px;font-size:11px">${info.solves}</div>
     </div>
+    <div class="hint" style="margin-top:10px;font-size:11px">Solves for <strong>T<sub>cam←base</sub></strong> via SVD point registration (Procrustes).</div>
 
-    <div class="section-label" id="he-input-label">${info.inputLabel}</div>
-    <div class="hint" id="he-input-hint">${info.inputHint}</div>
-    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:8px">
+    <div class="section-label">TCP Position (meters)</div>
+    <div class="hint">Enter the robot's <strong>tool center point position</strong> from your controller. Only translation — no rotation needed.</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:14px">
       <div>
         <label style="font-size:9px;font-family:var(--mono);color:var(--text-micro);display:block;margin-bottom:3px">X (m)</label>
         <input id="ee-x" type="number" value="0" step="0.001" style="width:100%;padding:6px 8px;border-radius:5px;border:1px solid var(--border2);background:var(--panel2);color:var(--text);font-family:var(--mono);font-size:12px" />
@@ -840,25 +763,11 @@ function renderHECapture(c, f) {
         <input id="ee-z" type="number" value="0" step="0.001" style="width:100%;padding:6px 8px;border-radius:5px;border:1px solid var(--border2);background:var(--panel2);color:var(--text);font-family:var(--mono);font-size:12px" />
       </div>
     </div>
-    <div id="he-rot-row" style="display:${info.needsRotation ? 'grid' : 'none'};grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:14px">
-      <div>
-        <label style="font-size:9px;font-family:var(--mono);color:var(--text-micro);display:block;margin-bottom:3px">Rx (rad)</label>
-        <input id="ee-rx" type="number" value="0" step="0.001" style="width:100%;padding:6px 8px;border-radius:5px;border:1px solid var(--border2);background:var(--panel2);color:var(--text);font-family:var(--mono);font-size:12px" />
-      </div>
-      <div>
-        <label style="font-size:9px;font-family:var(--mono);color:var(--text-micro);display:block;margin-bottom:3px">Ry (rad)</label>
-        <input id="ee-ry" type="number" value="0" step="0.001" style="width:100%;padding:6px 8px;border-radius:5px;border:1px solid var(--border2);background:var(--panel2);color:var(--text);font-family:var(--mono);font-size:12px" />
-      </div>
-      <div>
-        <label style="font-size:9px;font-family:var(--mono);color:var(--text-micro);display:block;margin-bottom:3px">Rz (rad)</label>
-        <input id="ee-rz" type="number" value="0" step="0.001" style="width:100%;padding:6px 8px;border-radius:5px;border:1px solid var(--border2);background:var(--panel2);color:var(--text);font-family:var(--mono);font-size:12px" />
-      </div>
-    </div>
 
-    <button class="btn full" id="he-add-btn" onclick="addHEPair()" style="margin-bottom:14px">${heConfigMode === 'touch-point' ? '📍 Add Point' : '📸 Add Pose Pair'}</button>
+    <button class="btn full" id="he-add-btn" onclick="addHEPair()" style="margin-bottom:14px">📍 Add Point</button>
 
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
-      <span class="badge ${handeyePairs.length >= 3 ? 'green' : 'amber'}" id="he-pair-badge">${handeyePairs.length} / 3+ pairs</span>
+      <span class="badge ${handeyePairs.length >= 3 ? 'green' : 'amber'}" id="he-pair-badge">${handeyePairs.length} / 3+ points</span>
       <span class="badge blue" id="he-tag-badge">—</span>
     </div>
     <div class="progress-bar"><div class="fill" id="he-progress" style="width:${Math.min(100, (handeyePairs.length / 3) * 100)}%"></div></div>
@@ -867,10 +776,14 @@ function renderHECapture(c, f) {
 
     <div id="he-feedback" style="font-size:12px;color:var(--text-dim);text-align:center;min-height:20px"></div>
 
-    <div class="card" style="border-color:rgba(251,191,36,0.15);margin-top:10px" id="he-tips-card">
+    <div class="card" style="border-color:rgba(251,191,36,0.15);margin-top:10px">
       <div style="font-size:12px;color:var(--amber);line-height:1.6">
         <strong>Tips for accuracy:</strong><br>
-        ${info.tips}
+        • Your robot's <strong>TCP must be calibrated</strong> — accuracy depends entirely on it<br>
+        • Spread points across the workspace — <strong>avoid a straight line</strong><br>
+        • Use <strong>different Z heights</strong> (e.g. tag on table, tag on a box) to avoid coplanar degeneracy<br>
+        • 4–6 well-spread points is usually sufficient<br>
+        • The tag can move between captures — just touch its center each time
       </div>
     </div>`;
   renderHEGrid();
@@ -900,88 +813,25 @@ function renderHEGrid() {
   ).join("");
 }
 
-window.updateHEConfig = function() {
-  const sel = document.getElementById("he-config");
-  if (!sel) return;
-  heConfigMode = sel.value;
-  post("/api/handeye/config", { config: heConfigMode });
-
-  const info = heInstructions(heConfigMode);
-
-  // Swap instruction block
-  const infoBlock = document.getElementById("he-info-block");
-  if (infoBlock) {
-    infoBlock.innerHTML = `
-      ${info.diagram}
-      <div class="hint">${info.setup}</div>
-      <div class="card" style="border-color:rgba(74,124,255,0.15)">
-        <div style="font-size:12px;color:var(--accent-light);line-height:1.7">
-          <strong>Procedure:</strong><br>
-          ${info.steps}
-        </div>
-      </div>
-      <div class="hint" style="margin-top:10px;font-size:11px">${info.solves}</div>`;
-  }
-
-  // Swap form labels
-  const il = document.getElementById("he-input-label");
-  if (il) il.innerHTML = info.inputLabel;
-  const ih = document.getElementById("he-input-hint");
-  if (ih) ih.innerHTML = info.inputHint;
-
-  // Show/hide rotation row
-  const rr = document.getElementById("he-rot-row");
-  if (rr) rr.style.display = info.needsRotation ? "grid" : "none";
-
-  // Update button text
-  const btn = document.getElementById("he-add-btn");
-  if (btn) btn.textContent = heConfigMode === "touch-point" ? "📍 Add Point" : "📸 Add Pose Pair";
-
-  // Swap tips
-  const tipsCard = document.getElementById("he-tips-card");
-  if (tipsCard) {
-    tipsCard.innerHTML = `
-      <div style="font-size:12px;color:var(--amber);line-height:1.6">
-        <strong>Tips for accuracy:</strong><br>
-        ${info.tips}
-      </div>`;
-  }
-
-  // Warn if switching config with existing pairs
-  if (handeyePairs.length > 0) {
-    toast("Config changed — existing pairs may be invalid. Consider clearing.", false);
-  }
-}
-
 window.addHEPair = async function() {
   const btn = document.getElementById("he-add-btn");
   const fb = document.getElementById("he-feedback");
   btn.disabled = true;
-
-  let r;
-  if (heConfigMode === "touch-point") {
-    btn.textContent = "Capturing…";
-    const vals = ["ee-x","ee-y","ee-z"].map(id => parseFloat(document.getElementById(id)?.value || 0));
-    r = await post("/api/touchpoint/pair", { tcp_pos: vals });
-  } else {
-    btn.textContent = "Capturing…";
-    const vals = ["ee-x","ee-y","ee-z","ee-rx","ee-ry","ee-rz"].map(id => parseFloat(document.getElementById(id)?.value || 0));
-    r = await post("/api/handeye/pair", { ee_pose: vals });
-  }
-
+  btn.textContent = "Capturing…";
+  const vals = ["ee-x","ee-y","ee-z"].map(id => parseFloat(document.getElementById(id)?.value || 0));
+  const r = await post("/api/touchpoint/pair", { tcp_pos: vals });
   btn.disabled = false;
-  btn.textContent = heConfigMode === "touch-point" ? "📍 Add Point" : "📸 Add Pose Pair";
+  btn.textContent = "📍 Add Point";
 
   if (r.ok) {
     handeyePairs.push({ thumbnail: r.thumbnail });
-    const label = heConfigMode === "touch-point" ? "Point" : "Pair";
-    toast(`${label} #${r.num_pairs} added`);
-    fb.style.color = "var(--green)"; fb.textContent = `${label} #${r.num_pairs} saved`;
+    toast(`Point #${r.num_pairs} added`);
+    fb.style.color = "var(--green)"; fb.textContent = `Point #${r.num_pairs} saved`;
     renderHEGrid();
     const p = document.getElementById("he-progress");
     if (p) p.style.width = Math.min(100, (handeyePairs.length / 3) * 100) + "%";
     const b = document.getElementById("he-pair-badge");
-    if (b) { b.textContent = `${handeyePairs.length} / 3+ ${heConfigMode === "touch-point" ? "points" : "pairs"}`; b.className = "badge " + (handeyePairs.length >= 3 ? "green" : "amber"); }
+    if (b) { b.textContent = `${handeyePairs.length} / 3+ points`; b.className = "badge " + (handeyePairs.length >= 3 ? "green" : "amber"); }
     const cb = document.getElementById("he-cal-btn");
     if (cb && handeyePairs.length >= 3) cb.disabled = false;
   } else {
@@ -999,26 +849,22 @@ window.clearHEPairs = function() {
 
 window.runHECalibration = async function() {
   const c = $("#sidebar-content");
-  const isTouchPoint = heConfigMode === "touch-point";
   c.innerHTML = `
-    <div class="section-label">Computing ${isTouchPoint ? 'Point Registration' : 'Hand-Eye Transform'}…</div>
-    <div class="hint">${isTouchPoint
-      ? `Running SVD rigid body registration (Procrustes) on ${handeyePairs.length} point correspondences.`
-      : `Running all 5 OpenCV methods (Tsai, Park, Horaud, Andreff, Daniilidis) and selecting the best.`}</div>
+    <div class="section-label">Computing Point Registration…</div>
+    <div class="hint">Running SVD rigid body registration (Procrustes) on ${handeyePairs.length} point correspondences.</div>
     <div style="text-align:center;padding:40px"><div class="badge blue">⏳ Computing…</div></div>`;
 
-  const endpoint = isTouchPoint ? "/api/calibrate/touchpoint" : "/api/calibrate/handeye";
-  const r = await post(endpoint);
+  const r = await post("/api/calibrate/touchpoint");
 
   if (r.ok) {
     handeyeResult = r.result;
-    toast(`Calibrated — ${r.result.method} (${isTouchPoint ? 'RMSE: ' + r.result.rmse_mm + ' mm' : 'residual: ' + r.result.residual})`);
+    toast(`Calibrated — ${r.result.method} (RMSE: ${r.result.rmse_mm} mm)`);
     goStep(7);
   } else {
     toast(r.error || "Calibration failed", false);
     c.innerHTML = `
       <div class="section-label" style="color:var(--red)">Calibration Failed</div>
-      <div class="hint">${r.error || "Unknown error"}. ${isTouchPoint ? 'Ensure you have ≥ 3 non-collinear points at different heights.' : 'Ensure you have ≥ 3 diverse pose pairs.'}</div>`;
+      <div class="hint">${r.error || "Unknown error"}. Ensure you have ≥ 3 non-collinear points at different heights.</div>`;
     $("#sidebar-footer").innerHTML = `<button class="btn full" onclick="goStep(6)">← Back to Capture</button>`;
   }
 }
@@ -1027,22 +873,18 @@ window.runHECalibration = async function() {
 function renderHEResult(c, f) {
   if (!handeyeResult) { goStep(6); return; }
   const r = handeyeResult;
-  const isTP = r.config === "touch-point";
   // Keep handeye stream running so tag overlay is visible
   startStream("handeye");
   updateCamDot(true);
 
   c.innerHTML = `
-    <div class="section-label">${isTP ? 'Point Registration' : 'Hand-Eye Calibration'} Result</div>
-    <div class="hint">Transform computed via <strong>${r.method}</strong> using ${r.num_pairs} ${isTP ? 'point correspondences' : 'pose pairs'} in <em>${r.config}</em> configuration. The live feed shows the derived frame projected onto the tag.</div>
+    <div class="section-label">Touch-Point Registration Result</div>
+    <div class="hint">Transform computed via <strong>${r.method}</strong> using ${r.num_pairs} point correspondences. The live feed shows the derived frame projected onto the tag.</div>
 
     <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">
       <span class="badge green">${r.method}</span>
       <span class="badge blue">${r.config}</span>
-      ${isTP
-        ? `<span class="badge ${(r.rmse_mm||0) < 3 ? 'green' : (r.rmse_mm||0) < 10 ? 'amber' : 'red'}">RMSE: ${r.rmse_mm || fmtNum(r.residual*1000, 3)} mm</span>`
-        : `<span class="badge ${r.residual < 0.1 ? 'green' : r.residual < 0.5 ? 'amber' : 'red'}">Residual: ${fmtNum(r.residual, 6)}</span>`
-      }
+      <span class="badge ${(r.rmse_mm||0) < 3 ? 'green' : (r.rmse_mm||0) < 10 ? 'amber' : 'red'}">RMSE: ${r.rmse_mm || fmtNum(r.residual*1000, 3)} mm</span>
     </div>
 
     ${(r.warning) ? `
@@ -1069,7 +911,6 @@ function renderHEResult(c, f) {
       [${r.rvec.map(v => fmtNum(v, 5)).join(", ")}]
     </div>
 
-    ${isTP ? `
     <div class="section-label">Point-by-Point Error</div>
     <div class="card" style="font-family:var(--mono);font-size:10px;line-height:1.8">
       ${(r.per_point_errors_mm || []).map((e, i) =>
@@ -1080,20 +921,10 @@ function renderHEResult(c, f) {
       <div style="display:flex;justify-content:space-between"><span style="color:var(--text-dim)">Max error</span><span>${r.max_error_mm} mm</span></div>
       <div style="display:flex;justify-content:space-between"><span style="color:var(--text-dim)">Collinearity</span><span style="color:${(r.collinearity_score||0) < 0.05 ? 'var(--red)' : 'var(--green)'}">${fmtNum(r.collinearity_score, 4)} ${(r.collinearity_score||0) < 0.05 ? '⚠ coplanar' : '✓'}</span></div>
     </div>
-    ` : `
-    <div class="section-label">All Methods Compared</div>
-    <div class="card" style="font-family:var(--mono);font-size:10px;line-height:1.8">
-      ${Object.entries(r.all_methods || {}).map(([name, m]) =>
-        m.error
-          ? `<div style="display:flex;justify-content:space-between"><span style="color:var(--text-dim)">${name}</span><span style="color:var(--red)">failed</span></div>`
-          : `<div style="display:flex;justify-content:space-between"><span style="color:${name === r.method ? 'var(--green)' : 'var(--text-dim)'}">${name}${name === r.method ? ' ✓' : ''}</span><span>${fmtNum(m.residual, 6)}</span></div>`
-      ).join("")}
-    </div>
-    `}
 
     <div class="card" style="border-color:rgba(52,211,153,0.15)">
       <div style="font-size:12px;color:var(--green);line-height:1.6">
-        <strong>Live overlay:</strong> The yellow frame on the video shows the ${isTP ? 'registration' : 'hand-eye'} transform composed with the tag pose. If it looks wrong, proceed to the adjustment step to tune it.
+        <strong>Live overlay:</strong> The yellow frame on the video shows the registration transform composed with the tag pose. If it looks wrong, proceed to the adjustment step to tune it.
       </div>
     </div>`;
   f.innerHTML = `
