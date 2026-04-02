@@ -7,10 +7,11 @@ from calibration.routes.intrinsic_routes import intrinsic_bp
 from calibration.routes.extrinsic_routes import extrinsic_bp
 from calibration.routes.handeye_routes import handeye_bp
 from calibration.routes.io_routes import io_bp
+from calibration.routes.evaluate_routes import evaluate_bp
 
 app = Flask(__name__)
 for bp in [pages_bp, stream_bp, board_bp, intrinsic_bp,
-           extrinsic_bp, handeye_bp, io_bp]:
+           extrinsic_bp, handeye_bp, io_bp, evaluate_bp]:
     app.register_blueprint(bp)
 
 if __name__ == "__main__":

@@ -26,6 +26,7 @@
     <div class="top-tabs" id="top-tabs">
       <button class="top-tab active" data-tab="calibrate" onclick="switchTab('calibrate')">Calibrate</button>
       <button class="top-tab" data-tab="debug" onclick="switchTab('debug')">Debug &amp; Tune</button>
+      <button class="top-tab" data-tab="evaluate" onclick="switchTab('evaluate')">Evaluate</button>
     </div>
     <span class="status-dot" id="cam-dot"></span>
     <span style="font-size:11px;font-family:var(--mono);color:var(--text-dim)" id="cam-status-text">Camera off</span>
@@ -45,6 +46,7 @@
       <p>Connect your camera and follow the steps on the right to calibrate it.</p>
     </div>
     <img id="stream-img" style="display:none" />
+    <div id="evaluate-area" style="display:none;width:100%;height:100%"></div>
   </div>
 
   <div class="sidebar">
@@ -67,6 +69,7 @@
 <script src="/static/js/steps/adjust.js"></script>
 <script src="/static/js/steps/export.js"></script>
 <script src="/static/js/debug.js"></script>
+<script src="/static/js/evaluate.js"></script>
 <script src="/static/js/nav.js"></script>
 </body>
 </html>

@@ -53,6 +53,8 @@ window.switchTab = function(tab) {
       updateCamDot(false);
     }
     stopDebugMetricsPoll();
+  } else if (activeTab === "evaluate") {
+    $("#evaluate-area").style.display = "none";
   }
 
   activeTab = tab;
@@ -67,6 +69,10 @@ window.switchTab = function(tab) {
   if (tab === "calibrate") {
     stepBar.style.display = "flex";
     goStep(currentStep);
+  } else if (tab === "evaluate") {
+    stopStream();
+    stepBar.style.display = "none";
+    renderEvaluatePanel();
   } else {
     // Debug & Tune mode
     stopStream();
