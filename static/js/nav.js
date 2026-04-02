@@ -54,6 +54,7 @@ window.switchTab = function(tab) {
     }
     stopDebugMetricsPoll();
   } else if (activeTab === "evaluate") {
+    evalCleanup();
     $("#evaluate-area").style.display = "none";
   }
 

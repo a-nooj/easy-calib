@@ -18,21 +18,33 @@ def _png(img):
 @evaluate_bp.route("/api/evaluate/coverage")
 def coverage_heatmap():
     with lock:
-        captures = state["captures"][:]
+        acc = state["eval_acc"]
+        if acc is not None and acc["coverage"].sum() > 0:
+            raw = acc["coverage"].copy()
+            use_acc = True
+        else:
+            use_acc = False
+            captures = state["captures"][:]
+
+    if use_acc:
+        acc_blur = cv2.GaussianBlur(raw, (61, 61), 0)
+        norm = cv2.normalize(acc_blur, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+        colored = cv2.applyColorMap(norm, cv2.COLORMAP_INFERNO)
+        return _png(colored)
 
     if not captures:
         return jsonify(ok=False, error="No captures yet"), 400
 
     w, h = captures[0]["img_size"]
-    acc = np.zeros((h, w), dtype=np.float32)
+    acc_map = np.zeros((h, w), dtype=np.float32)
 
     for cap in captures:
         for corner in cap["corners"]:
             cx, cy = int(corner[0][0]), int(corner[0][1])
-            cv2.circle(acc, (cx, cy), radius=20, color=1.0, thickness=-1)
+            cv2.circle(acc_map, (cx, cy), radius=20, color=1.0, thickness=-1)
 
-    acc = cv2.GaussianBlur(acc, (61, 61), 0)
-    norm = cv2.normalize(acc, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+    acc_map = cv2.GaussianBlur(acc_map, (61, 61), 0)
+    norm = cv2.normalize(acc_map, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
     colored = cv2.applyColorMap(norm, cv2.COLORMAP_INFERNO)
     return _png(colored)
 
@@ -40,8 +52,26 @@ def coverage_heatmap():
 @evaluate_bp.route("/api/evaluate/reprojection")
 def reprojection_heatmap():
     with lock:
-        captures = state["captures"][:]
-        calibration = state["calibration"]
+        acc = state["eval_acc"]
+        if acc is not None and acc["errors"].sum() > 0:
+            raw_err = acc["errors"].copy()
+            use_acc = True
+        else:
+            use_acc = False
+            captures = state["captures"][:]
+            calibration = state["calibration"]
+
+    if use_acc:
+        err_map = cv2.GaussianBlur(raw_err, (41, 41), 0)
+        nonzero = err_map[err_map > 0]
+        if nonzero.size > 0:
+            err_map = np.clip(err_map, 0, 2.0 * float(np.median(nonzero)))
+        norm = cv2.normalize(err_map, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+        b = np.zeros_like(norm)
+        g = (255 - norm).astype(np.uint8)
+        r = norm.astype(np.uint8)
+        colored = cv2.merge([b, g, r])
+        return _png(colored)
 
     if not captures:
         return jsonify(ok=False, error="No captures yet"), 400
@@ -104,3 +134,10 @@ def distortion_heatmap():
     norm = cv2.normalize(magnitude, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
     colored = cv2.applyColorMap(norm, cv2.COLORMAP_MAGMA)
     return _png(colored)
+
+
+@evaluate_bp.route("/api/evaluate/reset", methods=["POST"])
+def reset_eval_acc():
+    with lock:
+        state["eval_acc"] = None
+    return jsonify(ok=True)

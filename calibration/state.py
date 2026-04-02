@@ -12,7 +12,7 @@ camera = None
 
 state = {
     "stream_active": False,
-    "mode": "idle",              # idle | charuco | apriltag | undistort | handeye | debug
+    "mode": "idle",              # idle | charuco | apriltag | undistort | handeye | debug | evaluate
     "captures": [],              # list of (charuco_corners, charuco_ids, img_size)
     "calibration": None,         # dict with fx,fy,cx,cy,k1..k5,p1,p2,rpe
     "extrinsic": None,           # dict with R, t, rvec
@@ -25,6 +25,7 @@ state = {
         "apriltag_detected": False,
         "apriltag_corners": None,
     },
+    "eval_acc": None,            # None or {"coverage": np.zeros, "errors": np.zeros, "img_size": (w,h)}
 }
 
 

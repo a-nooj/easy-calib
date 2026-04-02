@@ -4,7 +4,7 @@ import time
 
 from calibration.config import (
     MIN_CHARUCO_CORNERS, MIN_CAPTURES,
-    charuco_detector, april_detector,
+    charuco_detector, charuco_board, april_detector,
 )
 from calibration.state import lock, state, open_camera
 
@@ -277,6 +277,66 @@ def generate_frames():
                         f"k1:{cal['k1']:.4f}  k2:{cal['k2']:.4f}",
                         (10, display.shape[0] - 10),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.35, (80, 90, 110), 1)
+
+        # — EVALUATE / LIVE ACCUMULATION MODE —
+        elif mode == "evaluate":
+            charuco_corners, charuco_ids, marker_corners, marker_ids = \
+                charuco_detector.detectBoard(gray)
+            n_corners = 0 if charuco_corners is None else len(charuco_corners)
+
+            if n_corners >= MIN_CHARUCO_CORNERS:
+                h_f, w_f = gray.shape[:2]
+                with lock:
+                    acc = state["eval_acc"]
+                    if acc is None or acc["img_size"] != (w_f, h_f):
+                        acc = {
+                            "coverage": np.zeros((h_f, w_f), np.float32),
+                            "errors":   np.zeros((h_f, w_f), np.float32),
+                            "img_size": (w_f, h_f),
+                        }
+                        state["eval_acc"] = acc
+
+                    # Accumulate corner coverage
+                    for corner in charuco_corners:
+                        cx_c, cy_c = int(corner[0][0]), int(corner[0][1])
+                        cv2.circle(acc["coverage"], (cx_c, cy_c), radius=20,
+                                   color=1.0, thickness=-1)
+
+                    # Accumulate reprojection errors if calibration available
+                    if cal is not None:
+                        K_e = np.array(cal["K"], dtype=np.float64)
+                        dist_e = np.array(cal["dist"], dtype=np.float64)
+                        obj_pts, img_pts = charuco_board.matchImagePoints(
+                            charuco_corners, charuco_ids)
+                        if obj_pts is not None and len(obj_pts) >= 4:
+                            retval_e, rvec_e, tvec_e = cv2.solvePnP(
+                                obj_pts, img_pts, K_e, dist_e)
+                            if retval_e:
+                                proj_e, _ = cv2.projectPoints(
+                                    obj_pts, rvec_e, tvec_e, K_e, dist_e)
+                                errs_e = np.linalg.norm(
+                                    img_pts.reshape(-1, 2) - proj_e.reshape(-1, 2),
+                                    axis=1)
+                                for pt_e, err_e in zip(
+                                        img_pts.reshape(-1, 2), errs_e):
+                                    cv2.circle(acc["errors"],
+                                               (int(pt_e[0]), int(pt_e[1])),
+                                               radius=25, color=float(err_e),
+                                               thickness=-1)
+
+            # Draw detected corners on the display frame
+            if charuco_corners is not None and charuco_ids is not None \
+                    and len(charuco_corners) > 0:
+                cv2.aruco.drawDetectedCornersCharuco(
+                    display, charuco_corners, charuco_ids,
+                    cornerColor=(80, 220, 160))
+            color_ev = (50, 210, 120) if n_corners >= MIN_CHARUCO_CORNERS \
+                else (100, 100, 255)
+            cv2.putText(display, "● Evaluating — move the board",
+                        (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color_ev, 2)
+            cv2.putText(display, f"{n_corners} corners",
+                        (20, display.shape[0] - 20),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (160, 160, 180), 1)
 
         # Capture count overlay (in charuco mode)
         if mode == "charuco":
