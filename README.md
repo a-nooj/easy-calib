@@ -2,7 +2,7 @@
 
 A guided, interactive webapp for **intrinsic** (ChArUco), **extrinsic** (AprilTag), and **hand-eye / robot-to-camera** calibration, powered by OpenCV. Includes a **Debug & Tune** mode for loading previous calibrations and fine-tuning parameters with a live camera feed.
 
-![Python](https://img.shields.io/badge/python-3.9+-blue) ![OpenCV](https://img.shields.io/badge/opencv-4.8+-green) ![Flask](https://img.shields.io/badge/flask-3.0+-lightgrey)
+![Python](https://img.shields.io/badge/python-3.8+-blue) ![OpenCV](https://img.shields.io/badge/opencv-4.8--4.x-green) ![Flask](https://img.shields.io/badge/flask-3.x-lightgrey)
 
 ---
 
@@ -133,6 +133,24 @@ CHARUCO_SQUARES_Y = 5        # rows
 CHARUCO_SQUARE_LENGTH = 0.030  # meters (30 mm)
 CHARUCO_MARKER_LENGTH = 0.022  # meters (22 mm)
 APRILTAG_SIZE = 0.050          # meters (50 mm)
+```
+
+### Camera index
+
+By default the app opens device `0`. If your target camera is on a different index, set the `CAMERA_INDEX` environment variable before starting:
+
+```bash
+CAMERA_INDEX=2 python app.py
+```
+
+Or with Docker:
+
+```yaml
+# docker-compose.yml
+services:
+  app:
+    environment:
+      - CAMERA_INDEX=2
 ```
 
 ---

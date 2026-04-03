@@ -1,8 +1,11 @@
+import os
 import threading
 import time
 import cv2
 
 from calibration.config import APRILTAG_SIZE
+
+CAMERA_INDEX = int(os.environ.get("CAMERA_INDEX", 0))
 
 # ═══════════════════════════════════════════════════════════════════
 #  GLOBAL STATE  (protected by lock)
@@ -32,7 +35,7 @@ state = {
 def open_camera():
     global camera
     if camera is None or not camera.isOpened():
-        camera = cv2.VideoCapture(0)
+        camera = cv2.VideoCapture(CAMERA_INDEX)
         camera.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
         camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
         camera.set(cv2.CAP_PROP_FPS, 30)
