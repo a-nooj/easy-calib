@@ -27,18 +27,40 @@ function renderExtCapture(c, f) {
         style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid var(--border2);background:var(--panel2);color:var(--text);font-family:var(--mono);font-size:13px" />
     </div>
 
+    <div class="auto-capture-row" id="ext-auto-row">
+      <span style="font-size:12px;color:var(--text-dim)">Auto-capture (holds steady ~0.5 s)</span>
+      <button id="ext-auto-btn" class="btn sm ${window._extAutoCapture ? 'primary' : ''}" onclick="toggleExtAutoCapture()">
+        ${window._extAutoCapture ? '⏹ Stop Auto' : '⟳ Start Auto'}
+      </button>
+    </div>
+    ${window._extAutoCapture ? `
+    <div id="ext-auto-status" style="font-size:11px;color:var(--text-dim);text-align:center;margin-bottom:10px">
+      Waiting for tag to be visible and stable…
+    </div>` : ''}
+
     <div class="card" style="border-color:rgba(251,191,36,0.15)">
       <div style="font-size:12px;color:var(--amber);line-height:1.6">
         <strong>Tip:</strong> Keep the tag flat and fully visible. Avoid extreme angles. The closer the tag, the more accurate the pose estimate.
       </div>
     </div>`;
+
   f.innerHTML = `
     <button class="btn" onclick="goStep(3)">← Back</button>
     <button class="btn primary" style="flex:1" id="ext-snap-btn" onclick="snapExtrinsic()">📸 Capture Tag Pose</button>`;
-  // Live tag detection updater
+
+  // Live tag detection + auto-capture polling
   if (!window._tagInterval) {
     window._tagInterval = setInterval(() => {
-      if (currentStep !== 4) { clearInterval(window._tagInterval); window._tagInterval = null; return; }
+      if (currentStep !== 4) {
+        clearInterval(window._tagInterval);
+        window._tagInterval = null;
+        // Disable auto-capture if we navigate away
+        if (window._extAutoCapture) {
+          window._extAutoCapture = false;
+          post('/api/capture/auto', { enabled: false });
+        }
+        return;
+      }
       const b = document.getElementById("tag-badge");
       if (b && lastStatus.apriltag_detected !== undefined) {
         if (lastStatus.apriltag_detected) {
@@ -49,11 +71,62 @@ function renderExtCapture(c, f) {
           b.className = "badge amber";
         }
       }
+      // Update auto stability progress label
+      if (window._extAutoCapture) {
+        const statusEl = document.getElementById("ext-auto-status");
+        if (statusEl && lastStatus.auto_capture_stable_pct !== undefined) {
+          const pct = Math.round(lastStatus.auto_capture_stable_pct * 100);
+          statusEl.textContent = pct < 100
+            ? `Stabilizing… ${pct}%`
+            : 'Capturing…';
+        }
+        // Check if extrinsic auto-capture just fired
+        if (lastStatus.has_extrinsic && !extrinsicResult) {
+          _onExtAutoCaptureFired();
+        }
+      }
     }, 300);
   }
 }
 
+async function _onExtAutoCaptureFired() {
+  // Prevent double-trigger
+  if (window._extAutoFetching) return;
+  window._extAutoFetching = true;
+  const r = await api('/api/capture/extrinsic/result');
+  window._extAutoFetching = false;
+  if (r.ok) {
+    extrinsicResult = r.result;
+    window._extAutoCapture = false;
+    toast(`Auto-captured! Tag #${r.result.tag_id} — RPE: ${r.result.rpe} px`);
+    goStep(5);
+  }
+}
+
+window.toggleExtAutoCapture = async function() {
+  const tagSizeMM = parseFloat(document.getElementById("ext-tag-size")?.value || 50);
+  window._extAutoCapture = !window._extAutoCapture;
+  window._extAutoFetching = false;
+  if (window._extAutoCapture) {
+    // Clear previous extrinsic result so has_extrinsic starts false
+    extrinsicResult = null;
+  }
+  const r = await post('/api/capture/auto', {
+    enabled: window._extAutoCapture,
+    mode: 'extrinsic',
+    tag_size: tagSizeMM / 1000.0,
+  });
+  if (!r.ok) { window._extAutoCapture = false; toast(r.error || 'Failed', false); }
+  // Re-render to update button state
+  renderExtCapture($("#sidebar-content"), $("#sidebar-footer"));
+};
+
 window.snapExtrinsic = async function() {
+  // Stop auto if running
+  if (window._extAutoCapture) {
+    window._extAutoCapture = false;
+    await post('/api/capture/auto', { enabled: false });
+  }
   const tagSizeMM = parseFloat(document.getElementById("ext-tag-size")?.value || 50);
   const btn = document.getElementById("ext-snap-btn");
   btn.disabled = true;
@@ -68,7 +141,7 @@ window.snapExtrinsic = async function() {
   } else {
     toast(r.error || "Capture failed", false);
   }
-}
+};
 
 // ───────── EXTRINSIC RESULT ─────────
 function renderExtrinsic(c, f) {

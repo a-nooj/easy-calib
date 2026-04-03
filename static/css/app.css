@@ -125,6 +125,34 @@ body { background: var(--bg); color: var(--text); font-family: var(--sans); heig
 /* ─── DIVIDER ─── */
 .divider { height: 1px; background: var(--border); margin: 16px 0; }
 
+/* ─── AUTO-CAPTURE ROW ─── */
+.auto-capture-row { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; background: var(--panel2); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 14px; }
+
+/* ─── CAMERA PICKER MODAL ─── */
+.cam-modal-overlay { position: fixed; inset: 0; background: rgba(11,12,16,0.88); z-index: 200; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(4px); }
+.cam-modal { background: var(--panel); border: 1px solid var(--border2); border-radius: 16px; padding: 28px 28px 22px; max-width: 660px; width: 92%; max-height: 82vh; overflow-y: auto; }
+.cam-modal h2 { font-size: 15px; font-weight: 500; color: #e8eaef; margin-bottom: 6px; }
+.cam-modal-subtitle { font-size: 11px; font-family: var(--mono); color: var(--text-dim); margin-bottom: 20px; }
+.cam-modal-footer { display: flex; justify-content: flex-end; gap: 8px; padding-top: 14px; border-top: 1px solid var(--border); }
+.cam-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.cam-scanning { grid-column: 1/-1; text-align: center; padding: 36px; font-size: 13px; color: var(--text-dim); }
+.cam-card { border: 1px solid var(--border2); border-radius: 10px; overflow: hidden; background: var(--panel2); transition: all 0.15s; }
+.cam-card:hover { border-color: var(--accent); }
+.cam-card.selected { border-color: var(--green); }
+.cam-card-preview { width: 100%; aspect-ratio: 16/9; background: #0d0e13; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.cam-card-preview img { width: 100%; height: 100%; object-fit: cover; }
+.cam-preview-loading { font-size: 10px; font-family: var(--mono); color: var(--text-micro); }
+.cam-card-info { padding: 9px 12px 6px; }
+.cam-card-name { font-size: 13px; font-weight: 500; color: var(--text); margin-bottom: 2px; }
+.cam-card-res { font-size: 10px; font-family: var(--mono); color: var(--text-dim); }
+.cam-card-select { display: block; width: 100%; padding: 7px; text-align: center; font-size: 12px; font-family: var(--sans); font-weight: 500; background: var(--accent-dim); color: var(--accent-light); border: none; border-top: 1px solid var(--border); cursor: pointer; transition: background 0.15s; }
+.cam-card-select:hover { background: rgba(74,124,255,0.2); }
+.cam-card.selected .cam-card-select { color: var(--green); background: rgba(52,211,153,0.07); }
+
+/* ─── CAMERA CHANGE BUTTON (header) ─── */
+.cam-change-btn { padding: 5px 8px; border-radius: 6px; border: 1px solid var(--border2); background: transparent; color: var(--text-dim); cursor: pointer; display: flex; align-items: center; transition: all 0.15s; }
+.cam-change-btn:hover { color: var(--accent-light); border-color: var(--accent); background: var(--accent-dim); }
+
 /* ─── PRINT PREVIEW ─── */
 .print-preview { background: white; border-radius: 8px; padding: 12px; display: flex; align-items: center; justify-content: center; margin-bottom: 14px; }
 .print-preview img { max-width: 100%; max-height: 200px; }

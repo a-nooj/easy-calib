@@ -83,6 +83,16 @@ def capture_extrinsic():
     return jsonify(ok=True, result=result)
 
 
+@extrinsic_bp.route("/api/capture/extrinsic/result")
+def get_extrinsic_result():
+    """Return the current extrinsic calibration result (used by auto-capture polling)."""
+    with lock:
+        ext = state["extrinsic"]
+    if ext is None:
+        return jsonify(ok=False, error="No extrinsic calibration"), 404
+    return jsonify(ok=True, result=ext)
+
+
 @extrinsic_bp.route("/api/adjust/extrinsic", methods=["POST"])
 def adjust_extrinsic():
     """Manually override extrinsic parameters via Euler-ish rvec + t."""

@@ -44,5 +44,5 @@ function renderWelcome(c, f) {
         <strong>Tip:</strong> For best results, capture the board from many angles and distances — fill different parts of the frame. We need at least 4 views, but 8–12 is better.
       </div>
     </div>`;
-  f.innerHTML = `<button class="btn primary full" onclick="goStep(1)">Let's Begin →</button>`;
+  f.innerHTML = `<button class="btn primary full" onclick="openCameraPicker(() => goStep(1))">Let's Begin →</button>`;
 }

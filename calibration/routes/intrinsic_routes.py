@@ -23,6 +23,10 @@ def get_status():
         det["has_handeye"] = state["handeye"] is not None
         det["num_touchpoint_pairs"] = len(state["touchpoint_pairs"])
         det["mode"] = state["mode"]
+        det["auto_capture"] = state["auto_capture"]
+        det["auto_capture_stable_pct"] = min(
+            1.0, state["auto_capture_stable_frames"] / 15.0)
+        det["camera_index"] = state["camera_index"]
     return jsonify(det)
 
 
@@ -54,6 +58,7 @@ def capture_intrinsic():
             "corners": charuco_corners,
             "ids": charuco_ids,
             "img_size": (gray.shape[1], gray.shape[0]),
+            "thumbnail": thumb_b64,
         })
         n = len(state["captures"])
 
@@ -67,6 +72,35 @@ def clear_captures():
         state["captures"] = []
         state["calibration"] = None
     return jsonify(ok=True)
+
+
+@intrinsic_bp.route("/api/capture/auto", methods=["POST"])
+def set_auto_capture():
+    """Enable or disable auto-capture mode for intrinsic or extrinsic."""
+    data = request.json or {}
+    enabled = bool(data.get("enabled", False))
+    tag_size = float(data.get("tag_size", state["auto_capture_tag_size"]))
+    mode = data.get("mode", "intrinsic")  # "intrinsic" | "extrinsic"
+    with lock:
+        state["auto_capture"] = enabled
+        state["auto_capture_tag_size"] = tag_size
+        state["auto_capture_stable_frames"] = 0
+        # When enabling extrinsic auto-capture, clear any previous extrinsic result
+        # so has_extrinsic transitions from false→true when auto fires
+        if enabled and mode == "extrinsic":
+            state["extrinsic"] = None
+    return jsonify(ok=True, auto_capture=enabled)
+
+
+@intrinsic_bp.route("/api/capture/latest_thumbnail")
+def latest_thumbnail():
+    """Return the thumbnail of the most recent intrinsic capture."""
+    with lock:
+        caps = state["captures"]
+        n = len(caps)
+    if n == 0:
+        return jsonify(ok=False, error="No captures"), 404
+    return jsonify(ok=True, thumbnail=caps[-1]["thumbnail"], num_captures=n)
 
 
 @intrinsic_bp.route("/api/calibrate/intrinsic", methods=["POST"])

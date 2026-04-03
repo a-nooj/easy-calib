@@ -9,6 +9,21 @@
 </head>
 <body>
 
+<!-- ═══════════ CAMERA PICKER MODAL ═══════════ -->
+<div id="cam-modal-overlay" class="cam-modal-overlay" style="display:none">
+  <div class="cam-modal">
+    <h2>Select Camera</h2>
+    <div class="cam-modal-subtitle" id="cam-modal-subtitle">Scanning for connected cameras…</div>
+    <div class="cam-grid" id="cam-grid">
+      <div class="cam-scanning">Scanning…</div>
+    </div>
+    <div class="cam-modal-footer">
+      <button class="btn sm" onclick="closeCameraPicker()">Cancel</button>
+      <button class="btn sm" onclick="rescanCameras()">↺ Rescan</button>
+    </div>
+  </div>
+</div>
+
 <!-- ═══════════ HEADER ═══════════ -->
 <div class="header">
   <div class="logo">
@@ -28,6 +43,11 @@
       <button class="top-tab" data-tab="debug" onclick="switchTab('debug')">Debug &amp; Tune</button>
       <button class="top-tab" data-tab="evaluate" onclick="switchTab('evaluate')">Evaluate</button>
     </div>
+    <button class="cam-change-btn" title="Change camera" onclick="openCameraPicker()">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+        <path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/>
+      </svg>
+    </button>
     <span class="status-dot" id="cam-dot"></span>
     <span style="font-size:11px;font-family:var(--mono);color:var(--text-dim)" id="cam-status-text">Camera off</span>
   </div>
@@ -61,6 +81,7 @@
 <script src="/static/js/api.js"></script>
 <script src="/static/js/state.js"></script>
 <script src="/static/js/stream.js"></script>
+<script src="/static/js/camera.js"></script>
 <script src="/static/js/steps/welcome.js"></script>
 <script src="/static/js/steps/print.js"></script>
 <script src="/static/js/steps/capture.js"></script>
