@@ -134,6 +134,44 @@ window.clearCaptures = function() {
   renderCapture($("#sidebar-content"), $("#sidebar-footer"));
 };
 
+window.openFrameViz = function(viz, frameNum, rpe, rpeColor) {
+  closeFrameViz();
+  const backdrop = document.createElement('div');
+  backdrop.className = 'viz-modal-backdrop';
+  backdrop.id = 'viz-modal';
+  backdrop.onclick = closeFrameViz;
+  backdrop.innerHTML = `
+    <button class="viz-modal-close" onclick="closeFrameViz()" title="Close">✕</button>
+    <img class="viz-modal-img" src="data:image/jpeg;base64,${viz}" onclick="event.stopPropagation()" />
+    <div class="viz-modal-footer">
+      <span style="color:var(--text-dim)">Frame ${frameNum}</span>
+      <span class="badge" style="background:${rpeColor};color:#fff;border:none">${rpe} px RPE</span>
+      <span style="color:var(--text-dim);font-size:11px">● green = detected &nbsp; + red = reprojected</span>
+    </div>`;
+  document.body.appendChild(backdrop);
+};
+
+window.closeFrameViz = function() {
+  const m = document.getElementById('viz-modal');
+  if (m) m.remove();
+};
+
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeFrameViz(); });
+
+window.deleteCapture = async function(captureIdx) {
+  const r = await post('/api/capture/delete', { idx: captureIdx });
+  if (!r.ok) { toast(r.error || 'Delete failed', false); return; }
+  captures.splice(captureIdx, 1);
+  if (r.num_captures < 4) {
+    toast('Not enough captures remaining — add more before calibrating', false);
+    goStep(2);
+  } else {
+    toast(`Frame ${captureIdx + 1} removed — recalibrating…`);
+    goStep(3);
+    runCalibration();
+  }
+};
+
 window.importIntrinsicJSON = async function(input) {
   const file = input.files[0];
   if (!file) return;
@@ -227,10 +265,20 @@ function renderIntrinsic(c, f) {
       <div style="display:flex;justify-content:space-between"><span style="color:var(--text-dim)">p₂</span><span class="val">${fmtNum(r.p2, 6)}</span></div>
     </div>
 
-    ${r.per_view_errors.length > 0 ? `
-    <div class="section-label">Per-View Reprojection Error</div>
-    <div class="card" style="font-family:var(--mono);font-size:11px">
-      ${r.per_view_errors.map((e, i) => `<div style="display:flex;justify-content:space-between;line-height:1.8"><span style="color:var(--text-dim)">Frame ${i+1}</span><span style="color:${e < 0.5 ? 'var(--green)' : e < 1 ? 'var(--amber)' : 'var(--red)'}">${e} px</span></div>`).join("")}
+    ${r.frame_viz && r.frame_viz.length > 0 ? `
+    <div class="section-label">Per-Frame Reprojection Errors</div>
+    <div class="hint" style="margin-bottom:10px">Green dots = detected corners &nbsp;·&nbsp; Red crosses = reprojected &nbsp;·&nbsp; Lines show error vectors.</div>
+    <div class="frame-viz-grid">
+      ${r.frame_viz.map((viz, i) => `
+        <div class="frame-viz-card">
+          <div style="position:relative">
+            <img src="data:image/jpeg;base64,${viz}" style="width:100%;border-radius:4px;display:block"
+              onclick="openFrameViz('${viz}', ${r.capture_indices[i] + 1}, ${r.per_view_errors[i]}, '${r.per_view_errors[i] < 0.5 ? 'rgba(93,112,82,0.9)' : r.per_view_errors[i] < 1 ? 'rgba(193,140,93,0.9)' : 'rgba(168,84,72,0.9)'}')" />
+            <button class="frame-delete-btn" onclick="deleteCapture(${r.capture_indices[i]})" title="Remove this frame">✕</button>
+            <span class="frame-rpe-badge" style="background:${r.per_view_errors[i] < 0.5 ? 'rgba(93,112,82,0.82)' : r.per_view_errors[i] < 1 ? 'rgba(193,140,93,0.82)' : 'rgba(168,84,72,0.82)'}">${r.per_view_errors[i]} px</span>
+          </div>
+          <div style="font-size:10px;color:var(--text-dim);text-align:center;margin-top:3px">Frame ${r.capture_indices[i] + 1}</div>
+        </div>`).join("")}
     </div>` : ''}
 
     <div class="card" style="border-color:rgba(52,211,153,0.15)">

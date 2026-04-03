@@ -13,6 +13,29 @@ from calibration.state import lock, state, open_camera
 intrinsic_bp = Blueprint("intrinsic", __name__)
 
 
+def _make_frame_viz(thumb_b64, img_pts, proj_pts, img_size):
+    """Overlay detected corners (green) and reprojected corners (red) on a thumbnail.
+
+    The thumbnail is upscaled 2× before drawing so markers remain sharp when the
+    image is enlarged in the lightbox; the grid displays it scaled down via CSS.
+    """
+    thumb_arr = np.frombuffer(base64.b64decode(thumb_b64), dtype=np.uint8)
+    small = cv2.imdecode(thumb_arr, cv2.IMREAD_COLOR)
+    # Upscale 2× for crisp rendering at lightbox size
+    viz = cv2.resize(small, (small.shape[1] * 2, small.shape[0] * 2),
+                     interpolation=cv2.INTER_LINEAR)
+    h, w = viz.shape[:2]
+    sx, sy = w / img_size[0], h / img_size[1]
+    for det, proj in zip(img_pts, proj_pts):
+        dx, dy = int(det[0][0] * sx), int(det[0][1] * sy)
+        px, py = int(proj[0][0] * sx), int(proj[0][1] * sy)
+        cv2.line(viz, (dx, dy), (px, py), (0, 210, 255), 1)
+        cv2.circle(viz, (dx, dy), 6, (50, 220, 50), -1)
+        cv2.drawMarker(viz, (px, py), (0, 60, 230), cv2.MARKER_CROSS, 14, 1)
+    _, buf = cv2.imencode('.jpg', viz, [cv2.IMWRITE_JPEG_QUALITY, 88])
+    return base64.b64encode(buf.tobytes()).decode()
+
+
 @intrinsic_bp.route("/api/status")
 def get_status():
     with lock:
@@ -115,13 +138,15 @@ def calibrate_intrinsic():
 
     all_obj_pts = []
     all_img_pts = []
+    valid_capture_indices = []
     img_size = captures[0]["img_size"]
 
-    for cap in captures:
+    for cap_idx, cap in enumerate(captures):
         obj_pts, img_pts = charuco_board.matchImagePoints(cap["corners"], cap["ids"])
         if obj_pts is not None and len(obj_pts) >= MIN_CHARUCO_CORNERS:
             all_obj_pts.append(obj_pts)
             all_img_pts.append(img_pts)
+            valid_capture_indices.append(cap_idx)
 
     if len(all_obj_pts) < MIN_CAPTURES:
         return jsonify(ok=False, error="Not enough valid captures after filtering"), 400
@@ -134,12 +159,16 @@ def calibrate_intrinsic():
     except cv2.error as e:
         return jsonify(ok=False, error=f"Calibration failed: {str(e)}"), 500
 
-    # Compute per-view reprojection errors
+    # Compute per-view reprojection errors and generate overlay thumbnails
     per_view_errors = []
+    frame_viz = []
     for i in range(len(all_obj_pts)):
         proj, _ = cv2.projectPoints(all_obj_pts[i], rvecs[i], tvecs[i], K, dist_coeffs)
-        err = cv2.norm(all_img_pts[i], proj.reshape(-1, 1, 2), cv2.NORM_L2) / len(proj)
+        proj = proj.reshape(-1, 1, 2)
+        err = cv2.norm(all_img_pts[i], proj, cv2.NORM_L2) / len(proj)
         per_view_errors.append(round(float(err), 4))
+        cap = captures[valid_capture_indices[i]]
+        frame_viz.append(_make_frame_viz(cap["thumbnail"], all_img_pts[i], proj, img_size))
 
     d = dist_coeffs.flatten().tolist()
     result = {
@@ -158,12 +187,28 @@ def calibrate_intrinsic():
         "K": K.tolist(),
         "dist": dist_coeffs.tolist(),
         "num_frames": len(all_obj_pts),
+        "capture_indices": valid_capture_indices,
+        "frame_viz": frame_viz,
     }
 
     with lock:
         state["calibration"] = result
 
     return jsonify(ok=True, result=result)
+
+
+@intrinsic_bp.route("/api/capture/delete", methods=["POST"])
+def delete_capture():
+    """Remove a single capture by index and invalidate calibration."""
+    data = request.json or {}
+    idx = int(data.get("idx", -1))
+    with lock:
+        if idx < 0 or idx >= len(state["captures"]):
+            return jsonify(ok=False, error="Invalid index"), 400
+        state["captures"].pop(idx)
+        state["calibration"] = None
+        n = len(state["captures"])
+    return jsonify(ok=True, num_captures=n)
 
 
 @intrinsic_bp.route("/api/adjust/intrinsic", methods=["POST"])

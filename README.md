@@ -166,6 +166,7 @@ services:
 | `/api/board/apriltag` | GET | Download AprilTag PNG |
 | `/api/capture/intrinsic` | POST | Capture frame for intrinsic calibration |
 | `/api/capture/clear` | POST | Clear all intrinsic capture frames |
+| `/api/capture/delete` | POST | Remove a single capture frame by index |
 | `/api/calibrate/intrinsic` | POST | Run Zhang's method |
 | `/api/capture/extrinsic` | POST | Capture AprilTag + solvePnP |
 | `/api/handeye/config` | POST | Set touch-point tag size |
@@ -222,21 +223,70 @@ This format is accepted by the `/api/load` endpoint and the Debug & Tune import 
 
 ## Docker Deployment
 
-A `docker-compose.yml` is included for running the app in a container with optional remote access via Cloudflare Tunnel.
+> **Platform note:** USB/V4L2 camera passthrough (`/dev/video*`) only works on **Linux**. On macOS or Windows you can still build and run the container, but you'll need to stream frames from a network camera or mock source — the host USB device won't be forwarded.
+
+### Option A — Docker Compose (recommended)
+
+A `docker-compose.yml` is included. It starts two services:
+
+- **`app`** — the Flask server, with `/dev/video0` passed through for camera access
+- **`tunnel`** — a Cloudflare Tunnel that exposes the app publicly over HTTPS (no account required)
 
 ```bash
+# Build and start both services
 docker compose up --build
+
+# Run in the background
+docker compose up --build -d
+
+# View the public tunnel URL (printed in the tunnel service logs)
+docker compose logs tunnel
+
+# Stop everything
+docker compose down
 ```
 
-- The `app` service builds the Flask server and passes through `/dev/video0` for camera access.
-- The `tunnel` service starts a `cloudflared` tunnel, printing a public HTTPS URL to its logs — no domain or account required.
+Open `http://localhost:5000` locally, or use the `trycloudflare.com` URL from the tunnel logs to access from another device.
+
+**Different camera index:**
+
+```yaml
+# docker-compose.yml
+services:
+  app:
+    devices:
+      - /dev/video2:/dev/video0   # map host device 2 → container device 0
+    environment:
+      - CAMERA_INDEX=0
+```
+
+**Skip the tunnel** (local access only):
 
 ```bash
-# View the tunnel URL
-docker compose logs tunnel
+docker compose up --build app
 ```
 
-To expose a different camera device, edit the `devices` mapping in `docker-compose.yml`.
+### Option B — Standalone Docker
+
+```bash
+# Build the image
+docker build -t calibration-tool .
+
+# Run with camera passthrough (Linux)
+docker run --rm \
+  --device /dev/video0:/dev/video0 \
+  -p 5000:5000 \
+  calibration-tool
+
+# Different camera index
+docker run --rm \
+  --device /dev/video2:/dev/video0 \
+  -e CAMERA_INDEX=0 \
+  -p 5000:5000 \
+  calibration-tool
+```
+
+Then open `http://localhost:5000`.
 
 ---
 
